@@ -1,0 +1,3 @@
+# Source is edited on Windows but built in WSL/Linux: keep LF everywhere.
+* text=auto eol=lf
+*.pcap binary
