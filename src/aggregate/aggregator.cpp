@@ -42,8 +42,8 @@ TrafficCounter& Aggregator::counter_for(PacketKind kind) {
     switch (kind) {
         case PacketKind::Tcp: return tcp_;
         case PacketKind::Udp: return udp_;
-        case PacketKind::OtherIpv4: return other_ipv4_;
-        case PacketKind::NonIpv4: return non_ipv4_;
+        case PacketKind::OtherIp: return other_ip_;
+        case PacketKind::NonIp: return non_ip_;
         case PacketKind::Malformed: break;
     }
     return malformed_;
@@ -71,7 +71,10 @@ void Aggregator::ingest(const PacketInfo& info, std::uint32_t wire_length, Clock
     kind_counter.bytes += wire_length;
     throughput_.add(t, wire_length);
 
-    if (!info.is_ipv4()) return;
+    if (!info.is_ip()) return;
+    TrafficCounter& version_counter = info.ip_version == 6 ? ipv6_ : ipv4_;
+    version_counter.packets += 1;
+    version_counter.bytes += wire_length;
 
     // A host's total is everything it sent plus everything it received.
     credit_host(info.src_ip, wire_length, t);
@@ -147,8 +150,10 @@ Snapshot Aggregator::build_snapshot(Clock::time_point now) {
     s.total = total_;
     s.tcp = tcp_;
     s.udp = udp_;
-    s.other_ipv4 = other_ipv4_;
-    s.non_ipv4 = non_ipv4_;
+    s.other_ip = other_ip_;
+    s.non_ip = non_ip_;
+    s.ipv4 = ipv4_;
+    s.ipv6 = ipv6_;
     s.malformed = malformed_;
     s.bytes_per_second = throughput_.bytes_per_second();
     s.packets_per_second = throughput_.packets_per_second();

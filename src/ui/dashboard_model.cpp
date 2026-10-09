@@ -3,6 +3,7 @@
 #include <string_view>
 
 #include "ui/glossary.hpp"
+#include "ui/labels.hpp"
 
 namespace netpulse {
 
@@ -27,9 +28,17 @@ const std::vector<ProtocolRowSpec>& protocol_rows() {
     static const std::vector<ProtocolRowSpec> rows = {
         {"proto:tcp", "TCP", &Snapshot::tcp, {"tcp", "packet"}},
         {"proto:udp", "UDP", &Snapshot::udp, {"udp", "packet"}},
-        {"proto:other-ipv4", "Other IPv4", &Snapshot::other_ipv4, {"other-ipv4", "icmp"}},
-        {"proto:non-ipv4", "Non-IPv4", &Snapshot::non_ipv4, {"non-ipv4"}},
+        {"proto:other-ip", "Other IP", &Snapshot::other_ip, {"other-ip", "icmp"}},
+        {"proto:non-ip", "Non-IP", &Snapshot::non_ip, {"non-ip"}},
         {"proto:malformed", "Malformed", &Snapshot::malformed, {"malformed", "header"}},
+    };
+    return rows;
+}
+
+const std::vector<ProtocolRowSpec>& ip_version_rows() {
+    static const std::vector<ProtocolRowSpec> rows = {
+        {"ipver:4", "IPv4", &Snapshot::ipv4, {"ipv4", "ip-address"}},
+        {"ipver:6", "IPv6", &Snapshot::ipv6, {"ipv6", "ip-address"}},
     };
     return rows;
 }
@@ -47,7 +56,8 @@ std::string category_row_id(Category category) {
 
 const char* protocol_term(std::uint8_t ip_protocol) {
     switch (ip_protocol) {
-        case 1: return "icmp";
+        case 1:
+        case 58: return "icmp";  // ICMP and ICMPv6 share an explanation
         case 6: return "tcp";
         case 17: return "udp";
         default: return "protocol";
@@ -63,8 +73,7 @@ std::vector<std::string> host_terms(const HostRow& host) {
 std::vector<std::string> flow_terms(const FlowRow& flow) {
     const char* protocol = protocol_term(flow.key.protocol);
     std::string why = std::string(kWhyFlowPrefix) + flow_row_id(flow.key);
-    const bool has_ports = flow.key.protocol == 6 || flow.key.protocol == 17;
-    if (has_ports) return {"flow", protocol, "port", std::move(why)};
+    if (has_ports(flow.key)) return {"flow", protocol, "port", std::move(why)};
     return {"flow", protocol, std::move(why)};
 }
 
@@ -80,6 +89,7 @@ std::vector<FocusRow> dashboard_focus_rows(const Snapshot& s) {
     rows.push_back({kThroughputRowId, {"throughput", "packet"}});
     for (const auto& c : s.categories) rows.push_back({category_row_id(c.category), category_terms(c)});
     for (const auto& p : protocol_rows()) rows.push_back({p.id, p.terms});
+    for (const auto& v : ip_version_rows()) rows.push_back({v.id, v.terms});
     for (const auto& h : s.top_hosts) rows.push_back({host_row_id(h.ip), host_terms(h)});
     for (const auto& f : s.top_flows) rows.push_back({flow_row_id(f.key), flow_terms(f)});
     rows.push_back({kHealthRowId, {"dropped-packet"}});

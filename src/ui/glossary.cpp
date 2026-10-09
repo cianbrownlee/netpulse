@@ -60,16 +60,26 @@ constexpr std::array kGlossary = {
     GlossaryEntry{"icmp", "ICMP (Internet Control Message Protocol)",
                   "A small helper protocol devices use to report problems and check on each other, "
                   "rather than to carry data. Its best-known use is \"ping\", which sends a request "
-                  "and times how long the reply takes."},
-    GlossaryEntry{"other-ipv4", "Other IPv4",
-                  "Traffic that uses IPv4 addressing but isn't TCP or UDP, such as ICMP \"ping\" "
-                  "messages. Usually a tiny share. Pieces of a packet that was split up in transit "
-                  "(fragments) also land here, because only the first piece says which protocol it "
-                  "belongs to."},
-    GlossaryEntry{"non-ipv4", "Non-IPv4",
-                  "Traffic that isn't IPv4 at all. On a home network that's mostly ARP (how "
-                  "devices find each other on the local network) and IPv6 (the newer version of IP "
-                  "addressing). This tool counts it but doesn't look inside it yet."},
+                  "and times how long the reply takes. IPv6 has its own version, ICMPv6, which it "
+                  "also relies on to find routers and neighbors on the local network."},
+    GlossaryEntry{"other-ip", "Other IP",
+                  "Traffic that uses IP (version 4 or 6) but isn't TCP or UDP, such as ICMP "
+                  "\"ping\" messages and the ICMPv6 messages IPv6 uses to find its neighbors. "
+                  "Usually a tiny share. Pieces of a packet that was split up in transit (fragments) "
+                  "also land here, because only the first piece says which protocol it belongs to."},
+    GlossaryEntry{"non-ip", "Non-IP",
+                  "Traffic that isn't IP at all. On a home network that's mostly ARP, the way IPv4 "
+                  "devices find each other's hardware addresses on the local network. NetPulse "
+                  "counts it but doesn't look inside it."},
+    GlossaryEntry{"ipv4", "IPv4 (Internet Protocol version 4)",
+                  "The original internet addressing system: 32-bit addresses written as four "
+                  "numbers, like 192.168.1.14. There are only about 4 billion of them, which is why "
+                  "a home network usually shares one public IPv4 address between all its devices."},
+    GlossaryEntry{"ipv6", "IPv6 (Internet Protocol version 6)",
+                  "The newer addressing system: 128-bit addresses written in hexadecimal groups, "
+                  "like 2001:db8::1, enough for every device to have its own public address. Most "
+                  "networks run both versions side by side; how much of your traffic uses each "
+                  "depends on your internet provider and the services you use."},
     GlossaryEntry{"malformed", "Malformed packet",
                   "A packet whose headers were cut short or didn't add up, so it couldn't be read "
                   "safely. This tool counts it and moves on rather than guessing. A few are normal; "

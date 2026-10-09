@@ -77,8 +77,10 @@ struct Snapshot {
     TrafficCounter total;
     TrafficCounter tcp;
     TrafficCounter udp;
-    TrafficCounter other_ipv4;
-    TrafficCounter non_ipv4;
+    TrafficCounter other_ip;   // IP, but not TCP or UDP
+    TrafficCounter non_ip;     // ARP and other non-IP frames
+    TrafficCounter ipv4;       // all IPv4 traffic (TCP, UDP and other), by IP version
+    TrafficCounter ipv6;
     TrafficCounter malformed;
 
     double bytes_per_second = 0;   // last complete second

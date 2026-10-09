@@ -8,9 +8,9 @@
 
 namespace netpulse {
 
-// Most bytes of a frame NetPulse keeps. The parser needs at most 138 (Ethernet 14 + VLAN 4 +
-// IPv4 up to 60 + TCP up to 60), and capture uses a 192-byte snaplen; anything past this is
-// payload, which NetPulse never reads.
+// Most bytes of a frame NetPulse keeps. Capture uses a 192-byte snaplen, which covers IPv4's
+// deepest header stack (138 bytes) and IPv6 with typical extension-header chains; anything past
+// this is payload, which NetPulse never reads.
 inline constexpr std::size_t kMaxCapturedBytes = 256;
 
 // One frame handed from the capture thread to the aggregator thread.

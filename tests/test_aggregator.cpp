@@ -53,7 +53,7 @@ TEST_CASE("totals and per-protocol counters use on-the-wire length", "[aggregate
     CHECK(s.tcp.packets == 1);
     CHECK(s.tcp.bytes == 1514);
     CHECK(s.udp.bytes == 80);
-    CHECK(s.non_ipv4.packets == 1);
+    CHECK(s.non_ip.packets == 1);
     CHECK(s.malformed.packets == 1);
 }
 
@@ -176,4 +176,27 @@ TEST_CASE("rate leaders are ordered by what is busy now, not by history", "[aggr
     CHECK(s.top_hosts[1].ip == kTv);
     CHECK(s.rate_leaders.front().ip == kServer);
     CHECK(s.rate_leaders[1].ip == kLaptop);      // busy now, despite fewer total bytes
+}
+
+TEST_CASE("IPv4 and IPv6 are counted by version and together", "[aggregate][ipv6]") {
+    Aggregator agg;
+    const IpAddress laptop6 = ip6("2001:db8:1::14");
+    const IpAddress server6 = ip6("2606:2800:220:1:248:1893:25c8:1946");
+    ingest_frame(agg, tcp_frame(kLaptop, 1, kServer, 443), 1500, t0);
+    ingest_frame(agg, tcp6_frame(laptop6, 51000, server6, 443), 1500, t0);
+    ingest_frame(agg, tcp6_frame(server6, 443, laptop6, 51000), 1000, t0);
+    ingest_frame(agg, concat({ethernet(kEtherTypeArp), payload(28)}), 60, t0);
+
+    const Snapshot s = agg.build_snapshot(t0 + 1s);
+    CHECK(s.ipv4.packets == 1);
+    CHECK(s.ipv4.bytes == 1500);
+    CHECK(s.ipv6.packets == 2);
+    CHECK(s.ipv6.bytes == 2500);
+    CHECK(s.tcp.packets == 3);  // the protocol view spans both versions
+    CHECK(s.non_ip.packets == 1);
+
+    // Both directions of the IPv6 conversation are one flow; hosts are keyed by full address.
+    CHECK(agg.flows().size() == 2);
+    CHECK(agg.hosts().at(laptop6).bytes == 2500);
+    CHECK(agg.hosts().at(server6).bytes == 2500);
 }

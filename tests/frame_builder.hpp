@@ -123,6 +123,53 @@ inline Bytes udp(std::uint16_t src_port, std::uint16_t dst_port, std::size_t pay
 
 inline Bytes payload(std::size_t n) { return Bytes(n, 0xAB); }
 
+// IPv6 fixed header. `payload_length` covers everything after these 40 bytes, including any
+// extension headers.
+inline Bytes ipv6(const IpAddress& src, const IpAddress& dst, std::uint8_t next_header,
+                  std::size_t payload_length, std::uint8_t version = 6) {
+    Bytes out;
+    out.push_back(static_cast<std::uint8_t>(version << 4));  // traffic class / flow label: 0
+    out.push_back(0);
+    out.push_back(0);
+    out.push_back(0);
+    put16(out, static_cast<std::uint16_t>(payload_length));
+    out.push_back(next_header);
+    out.push_back(64);  // hop limit
+    out.insert(out.end(), src.bytes().begin(), src.bytes().end());
+    out.insert(out.end(), dst.bytes().begin(), dst.bytes().end());
+    return out;
+}
+
+// A generic IPv6 extension header (hop-by-hop, routing, destination options) of `length` bytes,
+// a multiple of 8.
+inline Bytes ext_header(std::uint8_t next_header, std::size_t length) {
+    Bytes out(length, 0x01);  // padding options
+    out[0] = next_header;
+    out[1] = static_cast<std::uint8_t>(length / 8 - 1);
+    return out;
+}
+
+// IPv6 fragment header: `offset_units` is the fragment offset in 8-byte units.
+inline Bytes fragment_header(std::uint8_t next_header, std::uint16_t offset_units, bool more) {
+    Bytes out = {next_header, 0};
+    put16(out, static_cast<std::uint16_t>((offset_units << 3) | (more ? 1 : 0)));
+    put32(out, 0xCAFE);  // identification
+    return out;
+}
+
+inline Bytes tcp6_frame(const IpAddress& src, std::uint16_t sport, const IpAddress& dst,
+                        std::uint16_t dport, std::size_t payload_length = 0,
+                        std::uint8_t flags = 0x10) {
+    return concat({ethernet(0x86DD), ipv6(src, dst, 6, 20 + payload_length),
+                   tcp(sport, dport, flags), payload(payload_length)});
+}
+
+inline Bytes udp6_frame(const IpAddress& src, std::uint16_t sport, const IpAddress& dst,
+                        std::uint16_t dport, std::size_t payload_length = 0) {
+    return concat({ethernet(0x86DD), ipv6(src, dst, 17, 8 + payload_length),
+                   udp(sport, dport, payload_length), payload(payload_length)});
+}
+
 inline Bytes tcp_frame(const IpAddress& src, std::uint16_t sport, const IpAddress& dst,
                        std::uint16_t dport, std::size_t payload_length = 0,
                        std::uint8_t flags = 0x10) {

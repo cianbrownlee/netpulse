@@ -16,6 +16,7 @@ ends with something runnable and a check-in before moving on.
 | 5. Teaching layer | **Done, pending live check.** Classifier and status line (pure, unit-tested), category section, per-device "now" rates, and "why" explanations for every judgment. Verified end to end on a 70 s replay with one of each traffic pattern; still needs a look on real traffic and threshold tuning |
 | 6. Benchmarking & least privilege | **Done.** Three measured changes: no per-packet allocation, batched hand-off, kernel-side truncation. Live TCP capture 47% → 5% of a core; the capture no longer slows the traffic it measures. See [benchmarks.md](benchmarks.md) |
 | 7. Docs, CI, polish | **Mostly done.** Fresh-clone test passes (0 warnings, all tests). Remaining: confirm CI green on GitHub; tune thresholds on real traffic |
+| Phase 2: IPv6 | **Parsing done.** IPv6 with extension-header chains and fragments, IPv4/IPv6 split in the protocol view, IPv6-aware labels, resolver and classifier; fuzzed under ASan. Next: interface-aware "local" (IPv6 devices usually have public addresses) |
 
 ## Corrections folded in before building
 

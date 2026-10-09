@@ -133,6 +133,8 @@ bool is_background_port(std::uint16_t port) {
         case 123:   // NTP
         case 137:   // NetBIOS name service
         case 138:   // NetBIOS datagrams
+        case 546:   // DHCPv6 client
+        case 547:   // DHCPv6 server
         case 853:   // DNS over TLS
         case 1900:  // SSDP (device discovery)
         case 5353:  // mDNS
@@ -145,12 +147,15 @@ bool is_background_port(std::uint16_t port) {
 
 const char* background_name(const FlowFacts& f) {
     if (f.protocol == 1) return "ICMP";
+    if (f.protocol == 58) return "ICMPv6, including IPv6 neighbor discovery";
     if (f.protocol == 2) return "IGMP";
     switch (f.server_port) {
         case 53: return "DNS lookups";
         case 853: return "DNS over TLS";
         case 67:
         case 68: return "DHCP address assignment";
+        case 546:
+        case 547: return "DHCPv6 address assignment";
         case 123: return "time synchronization (NTP)";
         case 137:
         case 138: return "NetBIOS name service";
@@ -223,9 +228,11 @@ std::optional<KnownService> match_known_service(std::string_view hostname) {
 
 Classification classify(const FlowFacts& f) {
     if (!is_tcp_or_udp(f)) {
-        // ICMP and IGMP are housekeeping. Anything else (GRE, ESP: VPN tunnels) can carry real
+        // ICMP, IGMP and ICMPv6 are housekeeping. Anything else (GRE, ESP: VPN tunnels) can carry real
         // traffic NetPulse can't see into, so it's Other rather than hidden as background.
-        if (f.protocol == 1 || f.protocol == 2) return {Category::Background, ClassMethod::None};
+        if (f.protocol == 1 || f.protocol == 2 || f.protocol == 58) {
+            return {Category::Background, ClassMethod::None};
+        }
         return {Category::Other, ClassMethod::None};
     }
     if (is_background_port(f.server_port)) return {Category::Background, ClassMethod::None};

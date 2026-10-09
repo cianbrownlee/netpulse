@@ -74,3 +74,17 @@ TEST_CASE("flow key hash spreads sequential ports across buckets", "[flow]") {
     map[make_flow_key(tcp_packet(ip(1, 1, 1, 1), 1, ip(2, 2, 2, 2), 2)).key] = 7;
     CHECK(map.at(make_flow_key(tcp_packet(ip(2, 2, 2, 2), 2, ip(1, 1, 1, 1), 1)).key) == 7);
 }
+
+TEST_CASE("IPv6 conversations get canonical keys too, distinct from IPv4", "[flow][ipv6]") {
+    const IpAddress laptop6 = netpulse::test::ip6("2001:db8:1::14");
+    const IpAddress server6 = netpulse::test::ip6("2606:2800:220:1:248:1893:25c8:1946");
+    const auto out = make_flow_key(tcp_packet(laptop6, 51000, server6, 443));
+    const auto back = make_flow_key(tcp_packet(server6, 443, laptop6, 51000));
+    CHECK(out.key == back.key);
+    CHECK(out.a_to_b != back.a_to_b);
+    CHECK(std::hash<FlowKey>{}(out.key) == std::hash<FlowKey>{}(back.key));
+
+    // The same ports over IPv4 are a different conversation.
+    const auto v4 = make_flow_key(tcp_packet(ip(192, 168, 1, 14), 51000, ip(93, 184, 216, 34), 443));
+    CHECK_FALSE(v4.key == out.key);
+}

@@ -23,9 +23,10 @@ struct CaptureConfig {
     std::string interface;  // live capture from this interface...
     std::string pcap_file;  // ...or, if set, replay this file (development and testing)
 
-    // Bytes captured per packet. Large enough for the deepest header stack NetPulse parses
-    // (Ethernet 14 + VLAN 4 + IPv4 up to 60 + TCP up to 60 = 138), small enough that packet
-    // *contents* are not captured. For live capture a kernel socket filter enforces this (see
+    // Bytes captured per packet. Large enough for the header stacks NetPulse parses (Ethernet
+    // 14 + VLAN 4 + IPv4 up to 60 + TCP up to 60 = 138; with IPv6, 40 + extension headers
+    // instead of the IPv4 header, which leaves room for typical chains), small enough that
+    // packet *contents* are not captured. For live capture a kernel socket filter enforces this (see
     // truncate_in_kernel), so "only reads headers" holds for what reaches this process at all,
     // not just for what the parser looks at.
     int snaplen = 192;

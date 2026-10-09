@@ -15,7 +15,7 @@ namespace netpulse {
 // coverage are unit-testable.
 //
 // The dashboard draws its sections in exactly this order: status, throughput, categories,
-// protocol breakdown, top talkers, top flows, capture health. dashboard_focus_rows() must list
+// protocol breakdown, IP versions, top talkers, top flows, capture health. dashboard_focus_rows() must list
 // rows in the same order.
 
 inline constexpr const char* kStatusRowId = "status";
@@ -29,8 +29,10 @@ struct ProtocolRowSpec {
     std::vector<std::string> terms;
 };
 
-// TCP, UDP, Other IPv4, Non-IPv4, Malformed.
+// TCP, UDP, Other IP, Non-IP, Malformed.
 const std::vector<ProtocolRowSpec>& protocol_rows();
+// IPv4, IPv6: the same traffic split by IP version, shown under the protocol breakdown.
+const std::vector<ProtocolRowSpec>& ip_version_rows();
 
 std::string host_row_id(const IpAddress& ip);
 std::string flow_row_id(const FlowKey& key);

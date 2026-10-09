@@ -57,20 +57,21 @@ TEST_CASE("802.1Q VLAN tag is skipped to find the real EtherType", "[parse]") {
     CHECK(parse(frame).kind == PacketKind::Tcp);
 }
 
-TEST_CASE("non-IPv4 frames are classified, not rejected", "[parse]") {
+TEST_CASE("non-IP frames are classified, not rejected", "[parse]") {
     const auto arp = parse(concat({ethernet(kEtherTypeArp), payload(28)}));
-    CHECK(arp.kind == PacketKind::NonIpv4);
+    CHECK(arp.kind == PacketKind::NonIp);
     CHECK(arp.ethertype == kEtherTypeArp);
+    CHECK(arp.ip_version == 0);
 
-    const auto ipv6 = parse(concat({ethernet(kEtherTypeIpv6), payload(40)}));
-    CHECK(ipv6.kind == PacketKind::NonIpv4);
-    CHECK(ipv6.ethertype == kEtherTypeIpv6);
+    const auto lldp = parse(concat({ethernet(0x88CC), payload(40)}));
+    CHECK(lldp.kind == PacketKind::NonIp);
 }
 
-TEST_CASE("IPv4 without TCP/UDP is OtherIpv4 and keeps its addresses", "[parse]") {
+TEST_CASE("IPv4 without TCP/UDP is OtherIp and keeps its addresses", "[parse]") {
     const auto icmp = parse(concat({ethernet(kEtherTypeIpv4), ipv4(kLaptop, kServer, 1, 8),
                                     payload(8)}));
-    CHECK(icmp.kind == PacketKind::OtherIpv4);
+    CHECK(icmp.kind == PacketKind::OtherIp);
+    CHECK(icmp.ip_version == 4);
     CHECK(icmp.ip_protocol == kIpProtoIcmp);
     CHECK(icmp.src_ip == kLaptop);
     CHECK(icmp.dst_ip == kServer);
@@ -88,9 +89,139 @@ TEST_CASE("IP fragments: only the first one carries a transport header", "[parse
                                 ipv4(kLaptop, kServer, 17, 100, Ipv4Options{}.fragment(185)),
                                 payload(100)});
     const auto info = parse(later);
-    CHECK(info.kind == PacketKind::OtherIpv4);
+    CHECK(info.kind == PacketKind::OtherIp);
     CHECK(info.ip_protocol == kIpProtoUdp);
     CHECK(info.src_port == 0);
+}
+
+// ---------------------------------------------------------------------------------------------
+// IPv6
+// ---------------------------------------------------------------------------------------------
+
+namespace {
+const IpAddress kLaptop6 = ip6("2001:db8:1::14");
+const IpAddress kServer6 = ip6("2606:2800:220:1:248:1893:25c8:1946");
+}  // namespace
+
+TEST_CASE("IPv6 TCP and UDP parse through every layer", "[parse][ipv6]") {
+    const auto tcp6 = parse(tcp6_frame(kLaptop6, 51000, kServer6, 443, 100,
+                                       tcp_flags::kSyn | tcp_flags::kAck));
+    CHECK(tcp6.kind == PacketKind::Tcp);
+    CHECK(tcp6.ip_version == 6);
+    CHECK(tcp6.ethertype == kEtherTypeIpv6);
+    CHECK(tcp6.src_ip == kLaptop6);
+    CHECK(tcp6.dst_ip == kServer6);
+    CHECK(tcp6.src_port == 51000);
+    CHECK(tcp6.dst_port == 443);
+    CHECK(tcp6.tcp_flags == (tcp_flags::kSyn | tcp_flags::kAck));
+
+    const auto udp6 = parse(udp6_frame(kLaptop6, 50000, ip6("2001:4860:4860::8888"), 53, 30));
+    CHECK(udp6.kind == PacketKind::Udp);
+    CHECK(udp6.dst_port == 53);
+    CHECK(udp6.dst_ip.to_string() == "2001:4860:4860::8888");
+}
+
+TEST_CASE("IPv6 extension headers are walked to the transport header", "[parse][ipv6]") {
+    // Hop-by-hop (8 bytes) -> destination options (16 bytes) -> TCP.
+    const Bytes headers = concat({ext_header(kIpv6DestinationOptions, 8), ext_header(kIpProtoTcp, 16)});
+    const Bytes frame = concat({ethernet(kEtherTypeIpv6),
+                                ipv6(kLaptop6, kServer6, kIpv6HopByHop, headers.size() + 20),
+                                headers, tcp(1111, 443)});
+    const auto ip = parse_ipv6(std::span<const std::uint8_t>(frame).subspan(14));
+    REQUIRE(ip);
+    CHECK(ip->header_length == 40 + 8 + 16);
+    CHECK(ip->protocol == kIpProtoTcp);
+
+    const auto info = parse(frame);
+    CHECK(info.kind == PacketKind::Tcp);
+    CHECK(info.src_port == 1111);
+}
+
+TEST_CASE("IPv6 fragments: only the first one carries a transport header", "[parse][ipv6]") {
+    const Bytes first = concat({ethernet(kEtherTypeIpv6),
+                                ipv6(kLaptop6, kServer6, kIpv6Fragment, 8 + 8 + 100),
+                                fragment_header(kIpProtoUdp, 0, true), udp(5000, 6000, 100),
+                                payload(100)});
+    CHECK(parse(first).kind == PacketKind::Udp);
+
+    const Bytes later = concat({ethernet(kEtherTypeIpv6),
+                                ipv6(kLaptop6, kServer6, kIpv6Fragment, 8 + 100),
+                                fragment_header(kIpProtoUdp, 185, false), payload(100)});
+    const auto info = parse(later);
+    CHECK(info.kind == PacketKind::OtherIp);
+    CHECK(info.ip_protocol == kIpProtoUdp);
+    CHECK(info.src_port == 0);
+    CHECK(info.src_ip == kLaptop6);
+}
+
+TEST_CASE("ICMPv6 and encrypted ESP end the walk as Other IP", "[parse][ipv6]") {
+    const auto icmp6 = parse(concat({ethernet(kEtherTypeIpv6),
+                                     ipv6(ip6("fe80::1"), ip6("ff02::1:ff00:14"), kIpProtoIcmpv6, 32),
+                                     payload(32)}));
+    CHECK(icmp6.kind == PacketKind::OtherIp);
+    CHECK(icmp6.ip_protocol == kIpProtoIcmpv6);
+    CHECK(icmp6.ip_version == 6);
+
+    const auto esp = parse(concat({ethernet(kEtherTypeIpv6),
+                                   ipv6(kLaptop6, kServer6, 50, 64), payload(64)}));
+    CHECK(esp.kind == PacketKind::OtherIp);
+    CHECK(esp.ip_protocol == 50);
+}
+
+TEST_CASE("every truncated prefix of an IPv6 frame is rejected without crashing",
+          "[parse][ipv6][malformed]") {
+    const Bytes frame = tcp6_frame(kLaptop6, 51000, kServer6, 443);  // 14 + 40 + 20 = 74 bytes
+    REQUIRE(frame.size() == 74);
+    for (std::size_t len = 0; len < frame.size(); ++len) {
+        INFO("prefix length " << len);
+        const Bytes prefix(frame.begin(), frame.begin() + static_cast<std::ptrdiff_t>(len));
+        CHECK(parse(prefix).kind == PacketKind::Malformed);
+    }
+    CHECK(parse(frame).kind == PacketKind::Tcp);
+}
+
+TEST_CASE("inconsistent or hostile IPv6 headers are rejected", "[parse][ipv6][malformed]") {
+    SECTION("IPv6 EtherType, but not version 6 inside") {
+        const Bytes frame = concat({ethernet(kEtherTypeIpv6),
+                                    ipv6(kLaptop6, kServer6, kIpProtoTcp, 20, 4), tcp(1, 2)});
+        CHECK(parse(frame).kind == PacketKind::Malformed);
+    }
+    SECTION("an extension header claiming more bytes than were captured") {
+        Bytes hop = ext_header(kIpProtoTcp, 8);
+        hop[1] = 20;  // claims (20 + 1) * 8 = 168 bytes
+        const Bytes frame = concat({ethernet(kEtherTypeIpv6),
+                                    ipv6(kLaptop6, kServer6, kIpv6HopByHop, 8 + 20), hop, tcp(1, 2)});
+        CHECK(parse(frame).kind == PacketKind::Malformed);
+    }
+    SECTION("a chain longer than any real packet needs") {
+        Bytes chain;
+        for (int i = 0; i < 12; ++i) {
+            const Bytes h = ext_header(i == 11 ? kIpProtoTcp : kIpv6DestinationOptions, 8);
+            chain.insert(chain.end(), h.begin(), h.end());
+        }
+        const Bytes frame = concat({ethernet(kEtherTypeIpv6),
+                                    ipv6(kLaptop6, kServer6, kIpv6DestinationOptions, chain.size() + 20),
+                                    chain, tcp(1, 2)});
+        CHECK(parse(frame).kind == PacketKind::Malformed);
+    }
+    SECTION("payload length shorter than the extension headers") {
+        const Bytes frame = concat({ethernet(kEtherTypeIpv6),
+                                    ipv6(kLaptop6, kServer6, kIpv6HopByHop, 4),
+                                    ext_header(kIpProtoTcp, 8), tcp(1, 2)});
+        CHECK(parse(frame).kind == PacketKind::Malformed);
+    }
+    SECTION("payload length too short for the TCP header that follows") {
+        Bytes frame = concat({ethernet(kEtherTypeIpv6), ipv6(kLaptop6, kServer6, kIpProtoTcp, 10),
+                              tcp(1, 2)});
+        CHECK(parse(frame).kind == PacketKind::Malformed);
+    }
+}
+
+TEST_CASE("an IPv6 payload length of zero falls back to what was captured", "[parse][ipv6]") {
+    // Zero is what jumbograms (and some offloaded captures) carry in the fixed header.
+    const Bytes frame = concat({ethernet(kEtherTypeIpv6), ipv6(kLaptop6, kServer6, kIpProtoTcp, 0),
+                                tcp(1234, 443)});
+    CHECK(parse(frame).kind == PacketKind::Tcp);
 }
 
 TEST_CASE("IPv4 header options shift the transport header", "[parse]") {
@@ -199,11 +330,20 @@ TEST_CASE("random garbage never crashes the parser", "[parse][malformed]") {
     for (int i = 0; i < 20000; ++i) {
         Bytes frame(static_cast<std::size_t>(len_dist(rng)));
         for (auto& b : frame) b = static_cast<std::uint8_t>(byte_dist(rng));
-        // Bias toward reaching the deeper layers: make most frames claim IPv4.
-        if (frame.size() >= 15 && i % 4 != 0) {
+        // Bias toward reaching the deeper layers: make most frames claim IPv4 or IPv6, and
+        // for IPv6 an extension header often enough to exercise the chain walk.
+        if (frame.size() >= 15 && i % 4 == 1) {
             frame[12] = 0x08;
             frame[13] = 0x00;
             frame[14] = static_cast<std::uint8_t>(0x40 | (frame[14] & 0x0F));
+        } else if (frame.size() >= 21 && i % 4 >= 2) {
+            frame[12] = 0x86;
+            frame[13] = 0xDD;
+            frame[14] = static_cast<std::uint8_t>(0x60 | (frame[14] & 0x0F));
+            if (i % 4 == 3) {
+                static constexpr std::uint8_t kChain[] = {0, 43, 44, 51, 60, 6, 17};
+                frame[20] = kChain[static_cast<std::size_t>(byte_dist(rng)) % 7];
+            }
         }
         (void)parse(frame);
     }

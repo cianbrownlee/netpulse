@@ -64,7 +64,8 @@ private:
     HostRow host_row(const IpAddress& ip, const HostStats& h, Clock::time_point now) const;
 
     Config config_;
-    TrafficCounter total_, tcp_, udp_, other_ipv4_, non_ipv4_, malformed_;
+    TrafficCounter total_, tcp_, udp_, other_ip_, non_ip_, malformed_;
+    TrafficCounter ipv4_, ipv6_;
     ThroughputWindow throughput_;
     std::unordered_map<FlowKey, FlowStats> flows_;
     std::unordered_map<IpAddress, HostStats> hosts_;

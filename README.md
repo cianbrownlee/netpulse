@@ -1,8 +1,8 @@
 # NetPulse
 
 A live network traffic analyzer for Linux, written in C++20. It captures packet **headers**
-(never contents) with libpcap, parses Ethernet → IPv4 → TCP/UDP, and shows throughput, protocol
-mix, top talkers and conversations in a terminal dashboard.
+(never contents) with libpcap, parses Ethernet → IPv4 or IPv6 → TCP/UDP, and shows
+throughput, protocol mix, top talkers and conversations in a terminal dashboard.
 
 > **Status: early development.** Capture, parsing, aggregation, hostname resolution, the
 > traffic classifier, the status line and the dashboard work, including the in-context "Learn"
@@ -125,10 +125,11 @@ not every device on your home network. The packets are real; the vantage point i
 ctest --test-dir ~/netpulse-build --output-on-failure
 ```
 
-- **Unit tests (Catch2):** header parsing (including every truncated prefix of a frame,
-  inconsistent headers, and 20,000 random-garbage frames), the bounded queue (including a
-  multi-producer/multi-consumer exactly-once test), flow keys, the throughput window,
-  aggregation, the async resolver, and formatting.
+- **Unit tests (Catch2):** header parsing for IPv4 and IPv6 (including every truncated prefix
+  of a frame, inconsistent headers, hostile IPv6 extension-header chains, and 20,000
+  random-garbage frames), the bounded queue (including multi-producer/multi-consumer
+  exactly-once tests), flow keys, the throughput window, aggregation, the classifier and status
+  checks, the dashboard's focus and explanation logic, the async resolver, and formatting.
 - **End-to-end:** two captures are replayed through the real capture → queue → aggregator
   pipeline. `synthetic.pcap` checks parsing and counting; `traffic_mix.pcap` holds one
   conversation of each traffic pattern and checks that each lands in the right category and
@@ -153,12 +154,12 @@ individual binaries under `setarch "$(uname -m)" -R`.
 
 ```
 src/capture/    libpcap wrapper (live + file replay)
-src/parse/      Ethernet / IPv4 / TCP / UDP header parsing: pure functions
+src/parse/      Ethernet / IPv4 / IPv6 (with extension headers) / TCP / UDP parsing: pure functions
 src/aggregate/  flows, hosts, throughput window, snapshots
 src/resolve/    async reverse-DNS with cache
 src/pipeline/   the threads and the hand-offs between them
 src/ui/         FTXUI dashboard and plain-text report
-src/util/       bounded queue, formatting, IPv4 helpers
+src/util/       bounded queue, IPv4/IPv6 address type, formatting
 tests/          Catch2 suite
 tools/          fixture generator
 ```

@@ -103,7 +103,9 @@ TEST_CASE("housekeeping is background; unknown IP protocols are not hidden", "[c
     CHECK(category_of(facts(kUdp, 53, 1, 200, 60, 1.0)) == Category::Background);
     CHECK(category_of(facts(kUdp, 123, 1, 90, 90, 1.0)) == Category::Background);
     CHECK(category_of(facts(kUdp, 1900, 1, 0, 800, 1.0)) == Category::Background);
+    CHECK(category_of(facts(kUdp, 547, 1, 300, 300, 1.0)) == Category::Background);  // DHCPv6
     CHECK(category_of(facts(1, 0, 3, 300, 300, 1.0)) == Category::Background);  // ICMP
+    CHECK(category_of(facts(58, 0, 3, 300, 300, 1.0)) == Category::Background);  // ICMPv6
 
     // GRE / ESP carry VPN tunnels: real traffic NetPulse can't see into.
     CHECK(category_of(facts(47, 0, 60, 40 * MB, 2 * MB, 1.0)) == Category::Other);
@@ -176,4 +178,15 @@ TEST_CASE("every explanation names the evidence", "[classifier]") {
     CHECK(reason.find("pattern, not certainty") != std::string::npos);
     CHECK(reason.find("port 443") != std::string::npos);
     CHECK(reason.find("3 min") != std::string::npos);
+}
+
+TEST_CASE("orient: IPv6 unique-local and link-local ends are clients", "[classifier][ipv6]") {
+    FlowKey k;
+    k.ip_a = netpulse::test::ip6("2606:2800:220:1:248:1893:25c8:1946");
+    k.port_a = 443;
+    k.ip_b = netpulse::test::ip6("fd00::14");
+    k.port_b = 51000;
+    k.protocol = kTcp;
+    CHECK(orient(k).client_ip == netpulse::test::ip6("fd00::14"));
+    CHECK(orient(k).server_port == 443);
 }

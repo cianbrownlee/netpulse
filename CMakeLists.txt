@@ -131,7 +131,7 @@ if(NETPULSE_BUILD_TESTS)
   add_test(NAME replay_synthetic_pcap
     COMMAND netpulse --read ${CMAKE_SOURCE_DIR}/sample_pcaps/synthetic.pcap --plain --no-resolve)
   set_tests_properties(replay_synthetic_pcap PROPERTIES
-    PASS_REGULAR_EXPRESSION "summary: packets=64 bytes=42776 tcp=40 udp=16 other_ipv4=2 non_ipv4=3 malformed=3 flows=5 hosts=7 missed=0")
+    PASS_REGULAR_EXPRESSION "summary: packets=72 bytes=44782 tcp=44 udp=19 other_ip=4 non_ip=2 malformed=3 ipv6=9 flows=10 hosts=13 missed=0")
 
   # End-to-end for the classifier and status line: one conversation of each traffic pattern,
   # ending in a large download that should read as "a lot more data than usual".

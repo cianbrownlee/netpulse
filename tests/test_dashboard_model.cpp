@@ -42,7 +42,9 @@ Snapshot representative_snapshot() {
     HostRow unnamed;
     unnamed.ip = ip(192, 168, 1, 14);
     unnamed.is_local = true;
-    s.top_hosts = {named, unnamed};
+    HostRow v6;
+    v6.ip = netpulse::test::ip6("2001:db8:1::14");
+    s.top_hosts = {named, unnamed, v6};
     s.top_flows = {flow(6, 51000, 443, Category::Streaming), flow(17, 50000, 53, Category::Background),
                    flow(1, 0, 0, Category::Background), flow(47, 0, 0, Category::Other)};
     s.categories = {category(Category::Streaming, ClassMethod::FlowShape),
@@ -84,14 +86,15 @@ TEST_CASE("glossary entries are unique and complete", "[glossary]") {
 TEST_CASE("focus rows follow the on-screen section order with unique ids", "[dashboard]") {
     const Snapshot s = representative_snapshot();
     const auto rows = dashboard_focus_rows(s);
-    REQUIRE(rows.size() == 2 + s.categories.size() + protocol_rows().size() + s.top_hosts.size() +
-                               s.top_flows.size() + 1);
+    REQUIRE(rows.size() == 2 + s.categories.size() + protocol_rows().size() +
+                               ip_version_rows().size() + s.top_hosts.size() + s.top_flows.size() + 1);
     CHECK(rows[0].id == kStatusRowId);
     CHECK(rows[1].id == kThroughputRowId);
     CHECK(rows[2].id == category_row_id(Category::Streaming));
     CHECK(rows[2 + s.categories.size()].id == protocol_rows().front().id);
-    CHECK(rows[2 + s.categories.size() + protocol_rows().size()].id ==
-          host_row_id(s.top_hosts.front().ip));
+    const std::size_t hosts_start = 2 + s.categories.size() + protocol_rows().size() + ip_version_rows().size();
+    CHECK(rows[hosts_start - ip_version_rows().size()].id == ip_version_rows().front().id);
+    CHECK(rows[hosts_start].id == host_row_id(s.top_hosts.front().ip));
     CHECK(rows.back().id == kHealthRowId);
 
     std::set<std::string> ids;

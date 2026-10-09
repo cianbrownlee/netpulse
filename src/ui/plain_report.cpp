@@ -52,9 +52,12 @@ void print_report(std::ostream& out, const Snapshot& s, const std::string& sourc
     out << "Protocols:\n";
     out << protocol_line("TCP", s.tcp, s.total);
     out << protocol_line("UDP", s.udp, s.total);
-    out << protocol_line("Other IPv4", s.other_ipv4, s.total);
-    out << protocol_line("Non-IPv4", s.non_ipv4, s.total);
+    out << protocol_line("Other IP", s.other_ip, s.total);
+    out << protocol_line("Non-IP", s.non_ip, s.total);
     out << protocol_line("Malformed", s.malformed, s.total);
+    out << "IP versions:\n";
+    out << protocol_line("IPv4", s.ipv4, s.total);
+    out << protocol_line("IPv6", s.ipv6, s.total);
 
     out << "Top talkers (sent + received):\n";
     for (const auto& h : s.top_hosts) {
@@ -68,7 +71,7 @@ void print_report(std::ostream& out, const Snapshot& s, const std::string& sourc
     out << "Top flows:\n";
     for (const auto& f : s.top_flows) {
         char buf[320];
-        std::snprintf(buf, sizeof buf, "  %-5s %-10s %s  %s  (%s pkts)\n",
+        std::snprintf(buf, sizeof buf, "  %-6s %-10s %s  %s  (%s pkts)\n",
                       ip_protocol_name(f.key.protocol).c_str(), category_short_label(f.category),
                       conversation_label(f, " <-> ").c_str(),
                       format_bytes(static_cast<double>(f.stats.bytes)).c_str(),
@@ -82,9 +85,10 @@ void print_report(std::ostream& out, const Snapshot& s, const std::string& sourc
 
     out << "summary: packets=" << s.total.packets << " bytes=" << s.total.bytes
         << " tcp=" << s.tcp.packets << " udp=" << s.udp.packets
-        << " other_ipv4=" << s.other_ipv4.packets << " non_ipv4=" << s.non_ipv4.packets
-        << " malformed=" << s.malformed.packets << " flows=" << s.active_flows
-        << " hosts=" << s.known_hosts << " missed=" << s.health.missed() << "\n";
+        << " other_ip=" << s.other_ip.packets << " non_ip=" << s.non_ip.packets
+        << " malformed=" << s.malformed.packets << " ipv6=" << s.ipv6.packets
+        << " flows=" << s.active_flows << " hosts=" << s.known_hosts
+        << " missed=" << s.health.missed() << "\n";
 
     // Conversations per category, every category always listed, in a fixed order.
     out << "categories:";

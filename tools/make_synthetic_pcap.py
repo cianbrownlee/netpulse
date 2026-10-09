@@ -5,13 +5,14 @@ The frames are assembled here, independently of the C++ parser, so replaying the
 through NetPulse is an end-to-end check that the pipeline sees what is actually there.
 Expected results are printed at the end; CMake's replay tests check them.
 
-synthetic.pcap: parser and counting coverage (64 frames over ~10 s):
-  TCP  40  - an HTTPS download (handshake, data, ACKs) and a short HTTP exchange, one frame
-             of which carries an 802.1Q VLAN tag
-  UDP  16  - a DNS query/response and a steady call-like stream from a second device
-  ICMP  2  - an echo request/reply (counted as "other IPv4")
-  non-IPv4 3 - two ARP frames and one IPv6 frame
-  malformed 3 - a runt frame, an IPv4 header with IHL 3, a TCP header with data offset 2
+synthetic.pcap: parser and counting coverage (72 frames over ~11 s):
+  IPv4: an HTTPS download (handshake, data, ACKs) and a short HTTP exchange, one frame of
+        which carries an 802.1Q VLAN tag; a DNS query/response; a steady call-like UDP stream
+        from a second device; an ICMP echo request/reply
+  IPv6: an HTTPS exchange, a DNS query/response, ICMPv6 neighbor solicitation, mDNS behind a
+        hop-by-hop extension header, and a later fragment (no transport header)
+  non-IP: two ARP frames
+  malformed: a runt frame, an IPv4 header with IHL 3, a TCP header with data offset 2
 
 Large frames are stored truncated to 96 bytes (as a header-only capture would) with their
 real on-the-wire length recorded, which exercises wire length > captured length.
@@ -30,6 +31,7 @@ show them with receive offload (GRO): one ~60 kB record standing for many wire p
 Usage: python3 tools/make_synthetic_pcap.py [output_dir]
 """
 
+import ipaddress
 import struct
 import sys
 from pathlib import Path
@@ -79,56 +81,114 @@ def udp_frame(src, sport, dst, dport, payload_len):
             + b"\xab" * payload_len)
 
 
+def v6(text):
+    return ipaddress.IPv6Address(text).packed
+
+
+def ipv6(src, dst, next_header, payload_len):
+    return struct.pack("!IHBB16s16s", 6 << 28, payload_len, next_header, 64, src, dst)
+
+
+def tcp6_frame(src, sport, dst, dport, flags, payload_len=0):
+    return (ethernet(0x86DD) + ipv6(src, dst, 6, 20 + payload_len) + tcp(sport, dport, flags)
+            + b"\xab" * payload_len)
+
+
+def udp6_frame(src, sport, dst, dport, payload_len):
+    return (ethernet(0x86DD) + ipv6(src, dst, 17, 8 + payload_len) + udp(sport, dport, payload_len)
+            + b"\xab" * payload_len)
+
+
+LAPTOP6 = v6("2001:db8:1::14")
+WEB6 = v6("2606:2800:220:1:248:1893:25c8:1946")
+DNS6 = v6("2001:4860:4860::8888")
+LAPTOP_LL = v6("fe80::14")
+SOLICITED_NODE = v6("ff02::1:ff00:1")
+MDNS6 = v6("ff02::fb")
+
+
 def build_frames():
-    frames = []  # (label, bytes)
+    # (label, frame bytes, (src, sport, dst, dport, protocol) for IP frames NetPulse should
+    # count as conversations, else None). The tuples let main() work out the expected number of
+    # flows and hosts here, independently of NetPulse.
+    frames = []
+
+    def tcp4(src, sport, dst, dport, flags, payload_len=0, vlan=None):
+        frames.append(("tcp", tcp_frame(src, sport, dst, dport, flags, payload_len, vlan),
+                       (bytes(src), sport, bytes(dst), dport, 6)))
+
+    def udp4(src, sport, dst, dport, payload_len):
+        frames.append(("udp", udp_frame(src, sport, dst, dport, payload_len),
+                       (bytes(src), sport, bytes(dst), dport, 17)))
 
     # HTTPS download: laptop:51000 <-> web:443 (35 frames)
-    frames.append(("tcp", tcp_frame(LAPTOP, 51000, WEB, 443, SYN)))
-    frames.append(("tcp", tcp_frame(WEB, 443, LAPTOP, 51000, SYN | ACK)))
-    frames.append(("tcp", tcp_frame(LAPTOP, 51000, WEB, 443, ACK)))
+    tcp4(LAPTOP, 51000, WEB, 443, SYN)
+    tcp4(WEB, 443, LAPTOP, 51000, SYN | ACK)
+    tcp4(LAPTOP, 51000, WEB, 443, ACK)
     for i in range(25):
-        frames.append(("tcp", tcp_frame(WEB, 443, LAPTOP, 51000, ACK | PSH, 1460)))
+        tcp4(WEB, 443, LAPTOP, 51000, ACK | PSH, 1460)
         if i % 4 == 3:
-            frames.append(("tcp", tcp_frame(LAPTOP, 51000, WEB, 443, ACK)))
-    frames.append(("tcp", tcp_frame(LAPTOP, 51000, WEB, 443, ACK)))  # 3 + 25 + 6 + 1 = 35
+            tcp4(LAPTOP, 51000, WEB, 443, ACK)
+    tcp4(LAPTOP, 51000, WEB, 443, ACK)  # 3 + 25 + 6 + 1 = 35
 
     # Short HTTP exchange: laptop:51002 <-> cdn:80 (5 frames, one VLAN-tagged)
-    frames.append(("tcp", tcp_frame(LAPTOP, 51002, CDN, 80, ACK | PSH, 120)))
-    frames.append(("tcp", tcp_frame(CDN, 80, LAPTOP, 51002, ACK | PSH, 600, vlan=10)))
-    frames.append(("tcp", tcp_frame(LAPTOP, 51002, CDN, 80, ACK)))
-    frames.append(("tcp", tcp_frame(LAPTOP, 51002, CDN, 80, FIN | ACK)))
-    frames.append(("tcp", tcp_frame(CDN, 80, LAPTOP, 51002, FIN | ACK)))
+    tcp4(LAPTOP, 51002, CDN, 80, ACK | PSH, 120)
+    tcp4(CDN, 80, LAPTOP, 51002, ACK | PSH, 600, vlan=10)
+    tcp4(LAPTOP, 51002, CDN, 80, ACK)
+    tcp4(LAPTOP, 51002, CDN, 80, FIN | ACK)
+    tcp4(CDN, 80, LAPTOP, 51002, FIN | ACK)
 
     # DNS: laptop:50000 <-> 8.8.8.8:53 (2 frames)
-    frames.append(("udp", udp_frame(LAPTOP, 50000, DNS, 53, 30)))
-    frames.append(("udp", udp_frame(DNS, 53, LAPTOP, 50000, 46)))
+    udp4(LAPTOP, 50000, DNS, 53, 30)
+    udp4(DNS, 53, LAPTOP, 50000, 46)
 
     # Call-like stream: tv:40000 <-> turn:3478, small regular packets both ways (14 frames)
     for i in range(14):
         if i % 2 == 0:
-            frames.append(("udp", udp_frame(TV, 40000, TURN, 3478, 160)))
+            udp4(TV, 40000, TURN, 3478, 160)
         else:
-            frames.append(("udp", udp_frame(TURN, 3478, TV, 40000, 160)))
+            udp4(TURN, 3478, TV, 40000, 160)
 
     # ICMP echo request/reply (2 frames)
     icmp = struct.pack("!BBHHH", 8, 0, 0, 1, 1) + b"\x00" * 32
-    frames.append(("other_ipv4", ethernet(0x0800) + ipv4(LAPTOP, ONE, 1, len(icmp)) + icmp))
+    frames.append(("other_ip", ethernet(0x0800) + ipv4(LAPTOP, ONE, 1, len(icmp)) + icmp,
+                   (bytes(LAPTOP), 0, bytes(ONE), 0, 1)))
     reply = struct.pack("!BBHHH", 0, 0, 0, 1, 1) + b"\x00" * 32
-    frames.append(("other_ipv4", ethernet(0x0800) + ipv4(ONE, LAPTOP, 1, len(reply)) + reply))
+    frames.append(("other_ip", ethernet(0x0800) + ipv4(ONE, LAPTOP, 1, len(reply)) + reply,
+                   (bytes(ONE), 0, bytes(LAPTOP), 0, 1)))
 
-    # Non-IPv4: ARP request, ARP reply, one IPv6 frame (3 frames)
+    # IPv6 (9 frames): an HTTPS exchange, a DNS lookup, neighbor discovery, mDNS behind a
+    # hop-by-hop extension header, and the second piece of a fragmented datagram.
+    for src, sport, dst, dport, flags, size in [
+            (LAPTOP6, 51010, WEB6, 443, SYN, 0), (WEB6, 443, LAPTOP6, 51010, SYN | ACK, 0),
+            (LAPTOP6, 51010, WEB6, 443, ACK, 0), (WEB6, 443, LAPTOP6, 51010, ACK | PSH, 1200)]:
+        frames.append(("tcp", tcp6_frame(src, sport, dst, dport, flags, size),
+                       (src, sport, dst, dport, 6)))
+    frames.append(("udp", udp6_frame(LAPTOP6, 50001, DNS6, 53, 30), (LAPTOP6, 50001, DNS6, 53, 17)))
+    frames.append(("udp", udp6_frame(DNS6, 53, LAPTOP6, 50001, 60), (DNS6, 53, LAPTOP6, 50001, 17)))
+    solicitation = struct.pack("!BBHI16s", 135, 0, 0, 0, LAPTOP6)  # ICMPv6 type 135
+    frames.append(("other_ip", ethernet(0x86DD) + ipv6(LAPTOP_LL, SOLICITED_NODE, 58,
+                                                         len(solicitation)) + solicitation,
+                   (LAPTOP_LL, 0, SOLICITED_NODE, 0, 58)))
+    hop_by_hop = struct.pack("!BB6s", 17, 0, bytes(6))  # next header UDP, 8 bytes long
+    frames.append(("udp", ethernet(0x86DD) + ipv6(LAPTOP_LL, MDNS6, 0, 8 + 8 + 40) + hop_by_hop
+                   + udp(5353, 5353, 40) + bytes(40), (LAPTOP_LL, 5353, MDNS6, 5353, 17)))
+    fragment = struct.pack("!BBHI", 17, 0, (185 << 3), 0xCAFE)  # offset 1480 bytes, last piece
+    frames.append(("other_ip", ethernet(0x86DD) + ipv6(DNS6, LAPTOP6, 44, 8 + 100) + fragment
+                   + bytes(100), (DNS6, 0, LAPTOP6, 0, 17)))
+
+    # Non-IP: ARP request and reply (2 frames)
     arp = bytes(28)
-    frames.append(("non_ipv4", ethernet(0x0806) + arp))
-    frames.append(("non_ipv4", ethernet(0x0806) + arp))
-    frames.append(("non_ipv4", ethernet(0x86DD) + bytes(40)))
+    frames.append(("non_ip", ethernet(0x0806) + arp, None))
+    frames.append(("non_ip", ethernet(0x0806) + arp, None))
 
     # Malformed (3 frames)
-    frames.append(("malformed", bytes(10)))  # runt: shorter than an Ethernet header
+    frames.append(("malformed", bytes(10), None))  # runt: shorter than an Ethernet header
     bad_ihl = bytearray(ipv4(LAPTOP, WEB, 6, 20))
     bad_ihl[0] = (4 << 4) | 3
-    frames.append(("malformed", ethernet(0x0800) + bytes(bad_ihl) + tcp(1, 2, ACK)))
+    frames.append(("malformed", ethernet(0x0800) + bytes(bad_ihl) + tcp(1, 2, ACK), None))
     frames.append(("malformed", ethernet(0x0800) + ipv4(LAPTOP, WEB, 6, 20)
-                   + tcp(51003, 443, ACK, data_offset=2)))
+                   + tcp(51003, 443, ACK, data_offset=2), None))
 
     return frames
 
@@ -226,16 +286,22 @@ def main():
     # synthetic.pcap: one frame every 150 ms, so replay shows a real throughput shape.
     frames = build_frames()
     synthetic = out_dir / "synthetic.pcap"
-    write_pcap(synthetic, [(i * 0.15, frame, len(frame)) for i, (_, frame) in enumerate(frames)])
+    write_pcap(synthetic, [(i * 0.15, frame, len(frame)) for i, (_, frame, _) in enumerate(frames)])
 
     counts = {}
-    for label, _ in frames:
+    for label, _, _ in frames:
         counts[label] = counts.get(label, 0) + 1
-    total_bytes = sum(len(frame) for _, frame in frames)
+    total_bytes = sum(len(frame) for _, frame, _ in frames)
+    conversations = [meta for _, _, meta in frames if meta]
+    flows = {(meta[4],) + tuple(sorted([(meta[0], meta[1]), (meta[2], meta[3])]))
+             for meta in conversations}
+    hosts = {meta[0] for meta in conversations} | {meta[2] for meta in conversations}
+    ipv6_packets = sum(1 for meta in conversations if len(meta[0]) == 16)
     print(f"wrote {synthetic} ({synthetic.stat().st_size} bytes on disk)")
-    print(f"  packets={len(frames)} bytes={total_bytes} tcp={counts.get('tcp', 0)} "
-          f"udp={counts.get('udp', 0)} other_ipv4={counts.get('other_ipv4', 0)} "
-          f"non_ipv4={counts.get('non_ipv4', 0)} malformed={counts.get('malformed', 0)}")
+    print(f"  expect: summary: packets={len(frames)} bytes={total_bytes} tcp={counts.get('tcp', 0)} "
+          f"udp={counts.get('udp', 0)} other_ip={counts.get('other_ip', 0)} "
+          f"non_ip={counts.get('non_ip', 0)} malformed={counts.get('malformed', 0)} "
+          f"ipv6={ipv6_packets} flows={len(flows)} hosts={len(hosts)} missed=0")
 
     mix = build_traffic_mix()
     traffic_mix = out_dir / "traffic_mix.pcap"

@@ -17,10 +17,23 @@ inline constexpr std::uint16_t kEtherTypeIpv6 = 0x86DD;
 inline constexpr std::uint8_t kIpProtoIcmp = 1;
 inline constexpr std::uint8_t kIpProtoTcp = 6;
 inline constexpr std::uint8_t kIpProtoUdp = 17;
+inline constexpr std::uint8_t kIpProtoIcmpv6 = 58;
+
+// IPv6 extension headers the parser walks through to reach the transport header.
+inline constexpr std::uint8_t kIpv6HopByHop = 0;
+inline constexpr std::uint8_t kIpv6Routing = 43;
+inline constexpr std::uint8_t kIpv6Fragment = 44;
+inline constexpr std::uint8_t kIpv6Authentication = 51;
+inline constexpr std::uint8_t kIpv6DestinationOptions = 60;
+inline constexpr std::uint8_t kIpv6Mobility = 135;
+inline constexpr std::uint8_t kIpv6Hip = 139;
+inline constexpr std::uint8_t kIpv6Shim6 = 140;
+inline constexpr int kMaxIpv6ExtensionHeaders = 8;
 
 inline constexpr std::size_t kEthernetHeaderLength = 14;
 inline constexpr std::size_t kVlanTagLength = 4;
 inline constexpr std::size_t kIpv4MinHeaderLength = 20;
+inline constexpr std::size_t kIpv6HeaderLength = 40;
 inline constexpr std::size_t kTcpMinHeaderLength = 20;
 inline constexpr std::size_t kUdpHeaderLength = 8;
 
@@ -43,6 +56,16 @@ struct Ipv4Header {
     std::uint32_t dst = 0;
     // Fragment offset != 0: this packet carries the middle or end of a datagram, so it has
     // no transport (TCP/UDP) header of its own.
+    bool is_later_fragment = false;
+};
+
+struct Ipv6Header {
+    std::size_t header_length = 0;    // 40 plus every extension header walked through
+    std::uint16_t payload_length = 0; // everything after the fixed 40 bytes; 0 for jumbograms
+    std::uint8_t protocol = 0;        // the header after the extension chain (TCP, UDP, ICMPv6...)
+    IpAddress src;
+    IpAddress dst;
+    // A fragment header with a non-zero offset: this piece has no transport header of its own.
     bool is_later_fragment = false;
 };
 
@@ -69,14 +92,15 @@ inline constexpr std::uint8_t kAck = 0x10;
 
 std::optional<EthernetHeader> parse_ethernet(std::span<const std::uint8_t> bytes);
 std::optional<Ipv4Header> parse_ipv4(std::span<const std::uint8_t> bytes);
+std::optional<Ipv6Header> parse_ipv6(std::span<const std::uint8_t> bytes);
 std::optional<TcpHeader> parse_tcp(std::span<const std::uint8_t> bytes);
 std::optional<UdpHeader> parse_udp(std::span<const std::uint8_t> bytes);
 
 enum class PacketKind : std::uint8_t {
     Tcp,
     Udp,
-    OtherIpv4,  // ICMP, IGMP, ..., and later IP fragments (no transport header to read)
-    NonIpv4,    // ARP, IPv6, ... (IPv6 is out of MVP scope)
+    OtherIp,    // IPv4 or IPv6 but not TCP/UDP (ICMP, ICMPv6, IGMP, ESP...), and later fragments
+    NonIp,      // not IP at all: ARP, LLDP, ...
     Malformed,  // truncated or inconsistent headers
 };
 
@@ -87,6 +111,7 @@ const char* to_string(PacketKind kind);
 struct PacketInfo {
     PacketKind kind = PacketKind::Malformed;
     std::uint16_t ethertype = 0;
+    std::uint8_t ip_version = 0;  // 4 or 6; 0 if not IP
     std::uint8_t ip_protocol = 0;
     IpAddress src_ip;
     IpAddress dst_ip;
@@ -94,12 +119,13 @@ struct PacketInfo {
     std::uint16_t dst_port = 0;
     std::uint8_t tcp_flags = 0;
 
-    bool is_ipv4() const {
-        return kind == PacketKind::Tcp || kind == PacketKind::Udp || kind == PacketKind::OtherIpv4;
+    bool is_ip() const {
+        return kind == PacketKind::Tcp || kind == PacketKind::Udp || kind == PacketKind::OtherIp;
     }
 };
 
-// Ethernet -> IPv4 -> TCP/UDP, stopping at the first layer that is absent or malformed.
+// Ethernet -> IPv4 or IPv6 (through any extension headers) -> TCP/UDP, stopping at the first
+// layer that is absent or malformed.
 PacketInfo parse_packet(std::span<const std::uint8_t> frame);
 
 }  // namespace netpulse

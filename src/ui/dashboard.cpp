@@ -125,37 +125,41 @@ Element protocols(const Snapshot& s, const FocusModel& model) {
     static const Color kBarColors[] = {Color::Green, Color::Blue, Color::Yellow, Color::Magenta,
                                        Color::Red};
     Elements rows;
-    std::size_t i = 0;
-    for (const auto& p : protocol_rows()) {
+    auto add_row = [&](const ProtocolRowSpec& p, Color bar) {
         const TrafficCounter& c = s.*(p.counter);
         const double share = share_of(c.bytes, s.total.bytes);
         rows.push_back(selectable(hbox({
                                       cell(p.label, 12),
                                       right_cell(format_percent(share), 5),
                                       text("  "),
-                                      gauge(static_cast<float>(share)) | color(kBarColors[i++ % 5]) |
+                                      gauge(static_cast<float>(share)) | color(bar) |
                                           size(WIDTH, EQUAL, 30),
                                       text("  "),
                                       right_cell(format_bytes(static_cast<double>(c.bytes)), 10),
                                       right_cell(format_count(c.packets) + " packets", 20),
                                   }),
                                   model.is_focused(p.id)));
-    }
+    };
+    std::size_t i = 0;
+    for (const auto& p : protocol_rows()) add_row(p, kBarColors[i++ % 5]);
+    rows.push_back(text("  The same traffic by IP version:") | dim);
+    for (const auto& v : ip_version_rows()) add_row(v, Color::Cyan);
     return window(text(" Protocols (share of bytes) "), vbox(std::move(rows)));
 }
 
 Element top_talkers(const Snapshot& s, const FocusModel& model) {
     Elements rows;
-    rows.push_back(hbox({text("  "), cell("Device / address", 46), right_cell("Now", 11),
+    // The address column stretches: IPv6 addresses (with a name) can be long.
+    rows.push_back(hbox({text("  "), text("Device / address") | flex, right_cell("Now", 11),
                          right_cell("Bytes", 10), right_cell("Of all traffic", 16),
-                         text("   Where")}) | dim);
+                         cell("   Where", 12)}) | dim);
     for (const auto& h : s.top_hosts) {
         rows.push_back(selectable(hbox({
-                                      cell(host_label(h.ip, h.name), 46),
+                                      text(host_label(h.ip, h.name)) | flex,
                                       right_cell(format_rate(h.current_bps), 11),
                                       right_cell(format_bytes(static_cast<double>(h.bytes)), 10),
                                       right_cell(format_percent(share_of(h.bytes, s.total.bytes)), 16),
-                                      text(h.is_local ? "   local" : "   internet"),
+                                      cell(h.is_local ? "   local" : "   internet", 12),
                                   }),
                                   model.is_focused(host_row_id(h.ip))));
     }
@@ -170,14 +174,15 @@ Element top_talkers(const Snapshot& s, const FocusModel& model) {
 
 Element top_flows(const Snapshot& s, const FocusModel& model) {
     Elements rows;
-    rows.push_back(hbox({text("  "), cell("Proto", 6), cell("Conversation", 60),
-                         cell("Kind", 11), right_cell("Bytes", 10), right_cell("Packets", 10)}) |
+    // The conversation column stretches: an IPv6 conversation can be 70+ characters.
+    rows.push_back(hbox({text("  "), cell("Proto", 7), text("Conversation") | flex,
+                         cell(" Kind", 11), right_cell("Bytes", 10), right_cell("Packets", 10)}) |
                    dim);
     for (const auto& f : s.top_flows) {
         rows.push_back(selectable(hbox({
-                                      cell(ip_protocol_name(f.key.protocol), 6),
-                                      cell(conversation_label(f, "  ⇄  "), 60),
-                                      cell(category_short_label(f.category), 11),
+                                      cell(ip_protocol_name(f.key.protocol), 7),
+                                      text(conversation_label(f, "  ⇄  ")) | flex,
+                                      cell(" " + std::string(category_short_label(f.category)), 11),
                                       right_cell(format_bytes(static_cast<double>(f.stats.bytes)), 10),
                                       right_cell(format_count(f.stats.packets), 10),
                                   }),
