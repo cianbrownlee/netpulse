@@ -11,9 +11,9 @@ using namespace std::chrono_literals;
 namespace {
 
 const Clock::time_point t0 = Clock::time_point{} + 1000s;
-const std::uint32_t kLaptop = ip(192, 168, 1, 14);
-const std::uint32_t kTv = ip(192, 168, 1, 31);
-const std::uint32_t kServer = ip(93, 184, 216, 34);
+const IpAddress kLaptop = ip(192, 168, 1, 14);
+const IpAddress kTv = ip(192, 168, 1, 31);
+const IpAddress kServer = ip(93, 184, 216, 34);
 
 void ingest_frame(Aggregator& agg, const Bytes& frame, std::uint32_t wire_length,
                   Clock::time_point t) {

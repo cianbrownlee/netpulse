@@ -61,7 +61,8 @@ add_library(netpulse_core STATIC
   src/aggregate/status_tracker.cpp
   src/resolve/resolver.cpp
   src/util/format.cpp
-  src/util/net.cpp)
+  src/util/net.cpp
+  src/util/ip_address.cpp)
 target_include_directories(netpulse_core PUBLIC src)
 target_link_libraries(netpulse_core PUBLIC Threads::Threads netpulse_options)
 

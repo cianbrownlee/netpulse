@@ -10,7 +10,7 @@ using netpulse::test::ip;
 
 namespace {
 
-PacketInfo tcp_packet(std::uint32_t src, std::uint16_t sport, std::uint32_t dst,
+PacketInfo tcp_packet(const IpAddress& src, std::uint16_t sport, const IpAddress& dst,
                       std::uint16_t dport) {
     PacketInfo p;
     p.kind = PacketKind::Tcp;

@@ -74,7 +74,7 @@ private:
         NameState state = NameState::Unknown;
         std::string name;
     };
-    NameLookup lookup_name(std::uint32_t ip);
+    NameLookup lookup_name(const IpAddress& ip);
 
     Config config_;
     std::unique_ptr<PacketSource> capture_;

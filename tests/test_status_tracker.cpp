@@ -18,7 +18,7 @@ Snapshot at(Clock::duration uptime, double total_bps) {
     return s;
 }
 
-HostRow device(std::uint32_t addr, double current, double average, Clock::duration seen_for) {
+HostRow device(const IpAddress& addr, double current, double average, Clock::duration seen_for) {
     HostRow h;
     h.ip = addr;
     h.current_bps = current;
@@ -42,7 +42,7 @@ FlowRow unnamed_flow(double current, Clock::duration lifetime, NameState remote_
     return f;
 }
 
-const std::uint32_t kLaptop = ip(192, 168, 1, 14);
+const IpAddress kLaptop = ip(192, 168, 1, 14);
 
 }  // namespace
 

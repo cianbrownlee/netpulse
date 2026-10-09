@@ -108,8 +108,8 @@ PacketInfo parse_packet(std::span<const std::uint8_t> frame) {
     const auto ip = parse_ipv4(ip_bytes);
     if (!ip) return info;
     info.ip_protocol = ip->protocol;
-    info.src_ip = ip->src;
-    info.dst_ip = ip->dst;
+    info.src_ip = IpAddress::v4(ip->src);
+    info.dst_ip = IpAddress::v4(ip->dst);
     info.kind = PacketKind::OtherIpv4;
     if (ip->is_later_fragment) return info;
 

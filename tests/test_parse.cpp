@@ -11,8 +11,8 @@ namespace {
 
 PacketInfo parse(const Bytes& frame) { return parse_packet(std::span<const std::uint8_t>(frame)); }
 
-const std::uint32_t kLaptop = ip(192, 168, 1, 14);
-const std::uint32_t kServer = ip(93, 184, 216, 34);
+const IpAddress kLaptop = ip(192, 168, 1, 14);
+const IpAddress kServer = ip(93, 184, 216, 34);
 
 }  // namespace
 
@@ -43,8 +43,8 @@ TEST_CASE("multi-byte fields are read as big-endian", "[parse]") {
     const auto info = parse(tcp_frame(ip(1, 2, 3, 4), 443, ip(10, 20, 30, 40), 8080));
     CHECK(info.src_port == 443);
     CHECK(info.dst_port == 8080);
-    CHECK(info.src_ip == 0x01020304u);
-    CHECK(info.dst_ip == 0x0A141E28u);
+    CHECK(info.src_ip == IpAddress::v4(0x01020304u));
+    CHECK(info.dst_ip == IpAddress::v4(0x0A141E28u));
 }
 
 TEST_CASE("802.1Q VLAN tag is skipped to find the real EtherType", "[parse]") {

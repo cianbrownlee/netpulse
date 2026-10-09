@@ -9,8 +9,15 @@ namespace netpulse {
 
 // "router.lan (192.168.1.1)" when a name is known, otherwise just the address. The real
 // address always stays visible next to the friendly name.
-inline std::string host_label(std::uint32_t ip, const std::string& name) {
-    return name.empty() ? ipv4_to_string(ip) : name + " (" + ipv4_to_string(ip) + ")";
+inline std::string host_label(const IpAddress& ip, const std::string& name) {
+    return name.empty() ? ip.to_string() : name + " (" + ip.to_string() + ")";
+}
+
+// "192.168.1.14:51000", or "[2001:db8::1]:443": IPv6 addresses contain colons themselves, so
+// they're bracketed when a port follows (RFC 3986).
+inline std::string address_with_port(const IpAddress& ip, std::uint16_t port) {
+    const std::string address = ip.to_string();
+    return (ip.is_v4() ? address : "[" + address + "]") + ":" + std::to_string(port);
 }
 
 // "192.168.1.14:51000  ⇄  93.184.216.34:443". The local device is shown first, since
@@ -18,14 +25,13 @@ inline std::string host_label(std::uint32_t ip, const std::string& name) {
 // omitted for protocols that have none (ICMP, fragments).
 inline std::string conversation_label(const FlowRow& f, const char* arrow) {
     const bool has_ports = f.key.protocol == 6 || f.key.protocol == 17;
-    auto endpoint = [&](std::uint32_t ip, const std::string& name, std::uint16_t port) {
-        std::string s = host_label(ip, name);
-        if (has_ports) s += ":" + std::to_string(port);
-        return s;
+    auto endpoint = [&](const IpAddress& ip, const std::string& name, std::uint16_t port) {
+        const std::string address = has_ports ? address_with_port(ip, port) : ip.to_string();
+        return name.empty() ? address : name + " (" + address + ")";
     };
     std::string a = endpoint(f.key.ip_a, f.name_a, f.key.port_a);
     std::string b = endpoint(f.key.ip_b, f.name_b, f.key.port_b);
-    if (is_local_ipv4(f.key.ip_b) && !is_local_ipv4(f.key.ip_a)) std::swap(a, b);
+    if (is_local(f.key.ip_b) && !is_local(f.key.ip_a)) std::swap(a, b);
     return a + arrow + b;
 }
 

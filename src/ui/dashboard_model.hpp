@@ -32,7 +32,7 @@ struct ProtocolRowSpec {
 // TCP, UDP, Other IPv4, Non-IPv4, Malformed.
 const std::vector<ProtocolRowSpec>& protocol_rows();
 
-std::string host_row_id(std::uint32_t ip);
+std::string host_row_id(const IpAddress& ip);
 std::string flow_row_id(const FlowKey& key);
 std::string category_row_id(Category category);
 

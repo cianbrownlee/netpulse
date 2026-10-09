@@ -17,8 +17,8 @@ using Clock = std::chrono::steady_clock;
 // server"), and later lets the classifier ask direction questions (one-way bulk transfer vs.
 // a bidirectional call) from a single entry.
 struct FlowKey {
-    std::uint32_t ip_a = 0;
-    std::uint32_t ip_b = 0;
+    IpAddress ip_a;
+    IpAddress ip_b;
     std::uint16_t port_a = 0;
     std::uint16_t port_b = 0;
     std::uint8_t protocol = 0;
@@ -61,7 +61,7 @@ struct DirectedFlowKey {
     bool a_to_b = true;  // false if the packet travels from endpoint B to endpoint A
 };
 
-// Only meaningful for IPv4 packets. Ports are zero for protocols without them (ICMP, fragments).
+// Only meaningful for IP packets. Ports are zero for protocols without them (ICMP, fragments).
 inline DirectedFlowKey make_flow_key(const PacketInfo& p) {
     const bool src_is_a =
         p.src_ip < p.dst_ip || (p.src_ip == p.dst_ip && p.src_port <= p.dst_port);
@@ -87,20 +87,12 @@ inline DirectedFlowKey make_flow_key(const PacketInfo& p) {
 template <>
 struct std::hash<netpulse::FlowKey> {
     std::size_t operator()(const netpulse::FlowKey& k) const noexcept {
-        // Pack the 13 bytes of key into two words, then mix (splitmix64 finalizer) so that
-        // keys differing only in low bits still spread across buckets.
-        std::uint64_t h = (std::uint64_t{k.ip_a} << 32) | k.ip_b;
-        h ^= mix((std::uint64_t{k.port_a} << 32) | (std::uint64_t{k.port_b} << 16) | k.protocol);
-        return static_cast<std::size_t>(mix(h));
-    }
-
-private:
-    static std::uint64_t mix(std::uint64_t x) noexcept {
-        x ^= x >> 30;
-        x *= 0xbf58476d1ce4e5b9ULL;
-        x ^= x >> 27;
-        x *= 0x94d049bb133111ebULL;
-        x ^= x >> 31;
-        return x;
+        // Fold both addresses and the ports/protocol together, then one splitmix64 finalizer
+        // so keys differing only in a few low bits (sequential ephemeral ports) still spread.
+        using netpulse::detail::fold;
+        using netpulse::detail::kFold;
+        std::uint64_t h = fold(fold(0, k.ip_a), k.ip_b);
+        h = (h * kFold) ^ ((std::uint64_t{k.port_a} << 32) | (std::uint64_t{k.port_b} << 16) | k.protocol);
+        return static_cast<std::size_t>(netpulse::detail::mix64(h));
     }
 };

@@ -5,6 +5,8 @@
 #include <optional>
 #include <span>
 
+#include "util/ip_address.hpp"
+
 namespace netpulse {
 
 inline constexpr std::uint16_t kEtherTypeIpv4 = 0x0800;
@@ -86,8 +88,8 @@ struct PacketInfo {
     PacketKind kind = PacketKind::Malformed;
     std::uint16_t ethertype = 0;
     std::uint8_t ip_protocol = 0;
-    std::uint32_t src_ip = 0;
-    std::uint32_t dst_ip = 0;
+    IpAddress src_ip;
+    IpAddress dst_ip;
     std::uint16_t src_port = 0;
     std::uint16_t dst_port = 0;
     std::uint8_t tcp_flags = 0;

@@ -49,7 +49,7 @@ TrafficCounter& Aggregator::counter_for(PacketKind kind) {
     return malformed_;
 }
 
-void Aggregator::credit_host(std::uint32_t ip, std::uint32_t bytes, Clock::time_point t) {
+void Aggregator::credit_host(const IpAddress& ip, std::uint32_t bytes, Clock::time_point t) {
     auto [it, inserted] = hosts_.try_emplace(ip);
     HostStats& h = it->second;
     if (inserted) h.first_seen = t;
@@ -123,10 +123,10 @@ void Aggregator::update_rates(Clock::time_point now) {
     last_tick_ = now;
 }
 
-HostRow Aggregator::host_row(std::uint32_t ip, const HostStats& h, Clock::time_point now) const {
+HostRow Aggregator::host_row(const IpAddress& ip, const HostStats& h, Clock::time_point now) const {
     HostRow row;
     row.ip = ip;
-    row.is_local = is_local_ipv4(ip);
+    row.is_local = is_local(ip);
     row.packets = h.packets;
     row.bytes = h.bytes;
     row.current_bps = h.current_bps;

@@ -22,7 +22,7 @@ struct TrafficCounter {
 enum class NameState : std::uint8_t { Unknown, Named, NoName };
 
 struct HostRow {
-    std::uint32_t ip = 0;
+    IpAddress ip;
     std::string name;          // reverse-DNS name; empty unless name_state is Named
     NameState name_state = NameState::Unknown;
     bool is_local = false;     // private/LAN address rather than an internet one

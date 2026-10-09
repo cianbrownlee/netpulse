@@ -34,11 +34,11 @@ const std::vector<ProtocolRowSpec>& protocol_rows() {
     return rows;
 }
 
-std::string host_row_id(std::uint32_t ip) { return "host:" + std::to_string(ip); }
+std::string host_row_id(const IpAddress& ip) { return "host:" + ip.to_string(); }
 
 std::string flow_row_id(const FlowKey& k) {
-    return "flow:" + std::to_string(k.protocol) + ":" + std::to_string(k.ip_a) + ":" +
-           std::to_string(k.port_a) + "-" + std::to_string(k.ip_b) + ":" + std::to_string(k.port_b);
+    return "flow:" + std::to_string(k.protocol) + ":" + k.ip_a.to_string() + "/" +
+           std::to_string(k.port_a) + "-" + k.ip_b.to_string() + "/" + std::to_string(k.port_b);
 }
 
 std::string category_row_id(Category category) {

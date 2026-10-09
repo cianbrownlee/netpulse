@@ -151,7 +151,7 @@ void Pipeline::publish(Clock::time_point now, Clock::duration uptime) {
     latest_ = std::move(snapshot);
 }
 
-Pipeline::NameLookup Pipeline::lookup_name(std::uint32_t ip) {
+Pipeline::NameLookup Pipeline::lookup_name(const IpAddress& ip) {
     if (!resolver_) return {};
     auto result = resolver_->lookup(ip);
     switch (result.status) {
@@ -209,7 +209,7 @@ void Pipeline::categorize(Snapshot& s) {
 
         const FlowEnds ends = orient(t.biggest_key);
         const std::string server = t.biggest_facts.remote_name.empty()
-                                       ? ipv4_to_string(ends.server_ip)
+                                       ? ends.server_ip.to_string()
                                        : t.biggest_facts.remote_name;
         row.explanation = format_count(t.flows) + (t.flows == 1 ? " active conversation, " : " active conversations, ") +
                           format_bytes(static_cast<double>(t.bytes)) + " in total.";
@@ -219,7 +219,7 @@ void Pipeline::categorize(Snapshot& s) {
                                " of these bytes matched known services; the rest were labeled "
                                "by pattern.";
         }
-        row.explanation += " Biggest: " + ipv4_to_string(ends.client_ip) + " with " + server +
+        row.explanation += " Biggest: " + ends.client_ip.to_string() + " with " + server +
                            " (port " + std::to_string(ends.server_port) + "). " +
                            explain(t.biggest_facts, t.biggest_class);
         s.categories.push_back(std::move(row));

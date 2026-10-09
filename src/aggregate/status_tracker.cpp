@@ -18,7 +18,7 @@ constexpr const char* kNormalExplanation =
     "checks, not a security scan.";
 
 std::string device_label(const HostRow& h) {
-    return h.name.empty() ? ipv4_to_string(h.ip) : h.name + " (" + ipv4_to_string(h.ip) + ")";
+    return h.name.empty() ? h.ip.to_string() : h.name + " (" + h.ip.to_string() + ")";
 }
 
 std::string seconds_label(Clock::duration d) {
@@ -93,7 +93,7 @@ std::optional<Status> StatusTracker::check_capture_health(const Snapshot& s) {
 std::optional<Status> StatusTracker::check_device_above_usual(const Snapshot& s) const {
     if (s.uptime < t_.warm_up) return std::nullopt;
     for (const HostRow& h : s.rate_leaders) {
-        if (!is_private_ipv4(h.ip)) continue;  // "devices" are on your side of the network
+        if (!is_private(h.ip)) continue;  // "devices" are on your side of the network
         if (h.seen_for < t_.warm_up) continue;
         if (h.current_bps < t_.min_rate_bps) continue;
         if (h.current_bps < t_.above_usual_factor * h.average_bps) continue;
@@ -114,7 +114,7 @@ std::optional<Status> StatusTracker::check_device_above_usual(const Snapshot& s)
 std::optional<Status> StatusTracker::check_new_device(const Snapshot& s) const {
     if (s.current_bps < t_.min_rate_bps) return std::nullopt;
     for (const HostRow& h : s.rate_leaders) {
-        if (!is_private_ipv4(h.ip)) continue;
+        if (!is_private(h.ip)) continue;
         if (h.seen_for > t_.new_device_window) continue;
         // Only devices that arrived after the warm-up: at the start of a session everything is
         // "new" to NetPulse, which says nothing about the network.
@@ -142,7 +142,7 @@ std::optional<Status> StatusTracker::check_unnamed_destination(const Snapshot& s
 
     // Only a finished lookup that found nothing counts; "still looking it up" is not "no name".
     if (remote_state != NameState::NoName) return std::nullopt;
-    if (is_local_ipv4(ends.server_ip)) return std::nullopt;  // unnamed LAN devices are normal
+    if (is_local(ends.server_ip)) return std::nullopt;  // unnamed LAN devices are normal
     if (f.stats.duration() < t_.unnamed_min_duration) return std::nullopt;
     const double share = f.stats.current_bps / s.current_bps;
     if (share <= t_.unnamed_share) return std::nullopt;
@@ -151,7 +151,7 @@ std::optional<Status> StatusTracker::check_unnamed_destination(const Snapshot& s
         StatusKind::UnnamedDestination,
         "Worth noticing — most of your traffic right now is going to an address without a known name.",
         format_percent(share) + " of traffic right now (" + format_rate(f.stats.current_bps) +
-            ") is one conversation with " + ipv4_to_string(ends.server_ip) +
+            ") is one conversation with " + ends.server_ip.to_string() +
             ", and a reverse-DNS lookup found no name for that address. Plenty of legitimate "
             "services (many content delivery networks, for example) don't publish names, so "
             "this is worth a look, not a warning.");

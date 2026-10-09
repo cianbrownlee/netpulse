@@ -63,8 +63,8 @@ const char* method_tag(ClassMethod m) {
 // ---------------------------------------------------------------------------------------------
 
 FlowEnds orient(const FlowKey& k) {
-    const bool a_private = is_private_ipv4(k.ip_a);
-    const bool b_private = is_private_ipv4(k.ip_b);
+    const bool a_private = is_private(k.ip_a);
+    const bool b_private = is_private(k.ip_b);
     FlowEnds e;
     if (a_private != b_private) {
         e.client_is_a = a_private;

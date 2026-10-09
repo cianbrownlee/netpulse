@@ -7,6 +7,7 @@
 #include <sys/socket.h>
 
 #include <chrono>
+#include <cstring>
 #include <mutex>
 #include <unordered_map>
 #include <utility>
@@ -15,13 +16,22 @@
 
 namespace netpulse {
 
-std::optional<std::string> reverse_dns_lookup(std::uint32_t ip) {
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(ip);
+std::optional<std::string> reverse_dns_lookup(const IpAddress& ip) {
     char host[NI_MAXHOST];
-    const int rc = getnameinfo(reinterpret_cast<const sockaddr*>(&addr), sizeof addr, host,
-                               sizeof host, nullptr, 0, NI_NAMEREQD);
+    int rc = 0;
+    if (ip.is_v4()) {
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(ip.v4_value());
+        rc = getnameinfo(reinterpret_cast<const sockaddr*>(&addr), sizeof addr, host, sizeof host,
+                         nullptr, 0, NI_NAMEREQD);
+    } else {
+        sockaddr_in6 addr{};
+        addr.sin6_family = AF_INET6;
+        std::memcpy(addr.sin6_addr.s6_addr, ip.bytes().data(), 16);
+        rc = getnameinfo(reinterpret_cast<const sockaddr*>(&addr), sizeof addr, host, sizeof host,
+                         nullptr, 0, NI_NAMEREQD);
+    }
     if (rc != 0) return std::nullopt;
     return std::string(host);
 }
@@ -30,9 +40,9 @@ struct Resolver::State {
     State(LookupFn fn, std::size_t capacity) : lookup(std::move(fn)), pending(capacity) {}
 
     LookupFn lookup;
-    BoundedQueue<std::uint32_t> pending;
+    BoundedQueue<IpAddress> pending;
     std::mutex mutex;
-    std::unordered_map<std::uint32_t, Result> cache;
+    std::unordered_map<IpAddress, Result> cache;
 };
 
 Resolver::Resolver(LookupFn lookup) : Resolver(std::move(lookup), Config{}) {}
@@ -51,7 +61,7 @@ Resolver::~Resolver() {
     for (auto& worker : workers_) worker.detach();
 }
 
-Resolver::Result Resolver::lookup(std::uint32_t ip) {
+Resolver::Result Resolver::lookup(const IpAddress& ip) {
     {
         std::lock_guard lock(state_->mutex);
         auto [it, inserted] = state_->cache.try_emplace(ip);

@@ -9,12 +9,14 @@
 #include <thread>
 #include <vector>
 
+#include "util/ip_address.hpp"
+
 namespace netpulse {
 
 // Blocking reverse-DNS lookup (getnameinfo with NI_NAMEREQD). Returns nullopt if the address
 // has no name. Can take seconds when a DNS server is slow or unreachable, which is exactly why
 // it only ever runs on Resolver's worker threads.
-std::optional<std::string> reverse_dns_lookup(std::uint32_t ip);
+std::optional<std::string> reverse_dns_lookup(const IpAddress& ip);
 
 // Asynchronous hostname resolution with a session-long cache.
 //
@@ -27,7 +29,7 @@ std::optional<std::string> reverse_dns_lookup(std::uint32_t ip);
 // destroying the Resolver (and quitting the app) never waits for DNS either.
 class Resolver {
 public:
-    using LookupFn = std::function<std::optional<std::string>(std::uint32_t ip)>;
+    using LookupFn = std::function<std::optional<std::string>(const IpAddress& ip)>;
 
     enum class Status { Pending, Resolved, NoName };
 
@@ -49,7 +51,7 @@ public:
     Resolver& operator=(const Resolver&) = delete;
 
     // Non-blocking. Schedules resolution the first time an address is seen.
-    Result lookup(std::uint32_t ip);
+    Result lookup(const IpAddress& ip);
 
 private:
     struct State;

@@ -54,20 +54,20 @@ public:
     void expire_idle_flows(Clock::time_point now);
 
     const std::unordered_map<FlowKey, FlowStats>& flows() const { return flows_; }
-    const std::unordered_map<std::uint32_t, HostStats>& hosts() const { return hosts_; }
+    const std::unordered_map<IpAddress, HostStats>& hosts() const { return hosts_; }
     const TrafficCounter& total() const { return total_; }
 
 private:
     TrafficCounter& counter_for(PacketKind kind);
-    void credit_host(std::uint32_t ip, std::uint32_t bytes, Clock::time_point t);
+    void credit_host(const IpAddress& ip, std::uint32_t bytes, Clock::time_point t);
     void update_rates(Clock::time_point now);
-    HostRow host_row(std::uint32_t ip, const HostStats& h, Clock::time_point now) const;
+    HostRow host_row(const IpAddress& ip, const HostStats& h, Clock::time_point now) const;
 
     Config config_;
     TrafficCounter total_, tcp_, udp_, other_ipv4_, non_ipv4_, malformed_;
     ThroughputWindow throughput_;
     std::unordered_map<FlowKey, FlowStats> flows_;
-    std::unordered_map<std::uint32_t, HostStats> hosts_;
+    std::unordered_map<IpAddress, HostStats> hosts_;
     Clock::time_point last_expiry_{};
 
     bool rates_started_ = false;

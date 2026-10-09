@@ -17,8 +17,8 @@ namespace netpulse {
 // clients use high ephemeral ones.
 struct FlowEnds {
     bool client_is_a = true;
-    std::uint32_t client_ip = 0;
-    std::uint32_t server_ip = 0;
+    IpAddress client_ip;
+    IpAddress server_ip;
     std::uint16_t server_port = 0;
 };
 FlowEnds orient(const FlowKey& key);

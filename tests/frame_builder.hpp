@@ -4,18 +4,30 @@
 // from the parser (big-endian writes here, big-endian reads there) so a shared misconception
 // about the wire format would have to be made twice to go unnoticed.
 
+#include <arpa/inet.h>
+
 #include <cstddef>
 #include <cstdint>
+#include <stdexcept>
 #include <initializer_list>
 #include <optional>
 #include <vector>
+
+#include "util/ip_address.hpp"
 
 namespace netpulse::test {
 
 using Bytes = std::vector<std::uint8_t>;
 
-constexpr std::uint32_t ip(std::uint8_t a, std::uint8_t b, std::uint8_t c, std::uint8_t d) {
-    return (std::uint32_t{a} << 24) | (std::uint32_t{b} << 16) | (std::uint32_t{c} << 8) | d;
+constexpr IpAddress ip(std::uint8_t a, std::uint8_t b, std::uint8_t c, std::uint8_t d) {
+    return IpAddress::v4(a, b, c, d);
+}
+
+// IPv6 from its text form, e.g. ip6("2001:db8::1").
+inline IpAddress ip6(const char* text) {
+    IpAddress::Bytes bytes{};
+    if (inet_pton(AF_INET6, text, bytes.data()) != 1) throw std::invalid_argument(text);
+    return IpAddress::v6(bytes);
 }
 
 inline void put16(Bytes& out, std::uint16_t v) {
@@ -61,7 +73,7 @@ struct Ipv4Options {
     Ipv4Options& total_length(std::uint16_t v) { total_length_override = v; return *this; }
 };
 
-inline Bytes ipv4(std::uint32_t src, std::uint32_t dst, std::uint8_t protocol,
+inline Bytes ipv4(const IpAddress& src, const IpAddress& dst, std::uint8_t protocol,
                   std::size_t payload_length, Ipv4Options o = {}) {
     const std::size_t header_length = 20 + o.options_length;
     const auto ihl = o.ihl_override.value_or(static_cast<std::uint8_t>(header_length / 4));
@@ -75,8 +87,8 @@ inline Bytes ipv4(std::uint32_t src, std::uint32_t dst, std::uint8_t protocol,
     out.push_back(64);  // TTL
     out.push_back(protocol);
     put16(out, 0);  // checksum (not validated by NetPulse)
-    put32(out, src);
-    put32(out, dst);
+    put32(out, src.v4_value());
+    put32(out, dst.v4_value());
     out.insert(out.end(), o.options_length, 0x01);  // NOP options
     return out;
 }
@@ -111,14 +123,14 @@ inline Bytes udp(std::uint16_t src_port, std::uint16_t dst_port, std::size_t pay
 
 inline Bytes payload(std::size_t n) { return Bytes(n, 0xAB); }
 
-inline Bytes tcp_frame(std::uint32_t src, std::uint16_t sport, std::uint32_t dst,
+inline Bytes tcp_frame(const IpAddress& src, std::uint16_t sport, const IpAddress& dst,
                        std::uint16_t dport, std::size_t payload_length = 0,
                        std::uint8_t flags = 0x10) {
     return concat({ethernet(0x0800), ipv4(src, dst, 6, 20 + payload_length),
                    tcp(sport, dport, flags), payload(payload_length)});
 }
 
-inline Bytes udp_frame(std::uint32_t src, std::uint16_t sport, std::uint32_t dst,
+inline Bytes udp_frame(const IpAddress& src, std::uint16_t sport, const IpAddress& dst,
                        std::uint16_t dport, std::size_t payload_length = 0) {
     return concat({ethernet(0x0800), ipv4(src, dst, 17, 8 + payload_length),
                    udp(sport, dport, payload_length), payload(payload_length)});
