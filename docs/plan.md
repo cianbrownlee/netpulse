@@ -18,6 +18,7 @@ ends with something runnable and a check-in before moving on.
 | 7. Docs, CI, polish | **Mostly done.** Fresh-clone test passes (0 warnings, all tests). Remaining: confirm CI green on GitHub; tune thresholds on real traffic |
 | Phase 2: DNS names | **Done, pending live check.** Opt-in `--dns-names`: a BPF filter keeps 512 bytes of DNS/mDNS responses only; a hardened DNS parser (backward-only compression pointers, no control characters) names addresses from the answers devices receive. Verified end to end on the replay fixture (video and call become known-service matches). TLS SNI deliberately deferred (see below) |
 | Phase 2: demo and usability | **Done.** `--demo` runs a simulated household through the real pipeline (no permissions needed; tested end to end), recorded as the README's animated `docs/demo.svg`. Dashboard: Enter drills into a device's conversations, Space pauses, `?` lists keys, a context hint shows the useful key for the current row, and the layout adapts down to 80 columns |
+| Phase 2: fuzzing | **Done, libFuzzer side pending a local run.** Three targets with checked properties (packet parser + aggregator, DNS-answer parser, and the kernel filter differentially against the parser), run as tests everywhere and as libFuzzer in CI. Found that the DNS parser's loop protection rested on the name-length cap, not on its pointer rule as documented; fixed |
 | Phase 2: IPv6 | **Done.** IPv6 with extension-header chains and fragments, IPv4/IPv6 split in the protocol view, IPv6-aware labels, resolver and classifier; fuzzed under ASan. "Local" now means the capture interface's own subnets too (IPv6 home devices have public addresses), plus `--local` for replays. Still unverified on a real IPv6 network: WSL2's NAT mode has no IPv6 connectivity |
 
 ## Corrections folded in before building
@@ -46,6 +47,10 @@ ends with something runnable and a check-in before moving on.
    kernel copied whole packets into the capture ring and libpcap trimmed them afterwards. That made
    the "payloads are never captured" claim false and cost 46% of a core on TCP bulk. Fixed with a
    one-instruction kernel socket filter; see benchmarks.md, step 4.
+10. *(Fuzzing)* **"Backward-only" compression pointers don't prevent loops** in DNS names: a pointer
+    can jump back to labels that lead forward to the same pointer. Names like that were only ever
+    rejected by the 253-character cap. Now each jump must land before everything already read for
+    the name, which bounds the jumps by the message length.
 
 ## Stages
 

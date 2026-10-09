@@ -47,8 +47,10 @@ Decisions worth knowing about:
   your devices looked up: "142.250.72.14 is www.youtube.com". That names addresses reverse DNS
   can't, and turns many pattern guesses into known-service matches. It's off by default because
   it means reading the contents of one kind of packet. Names from the network are treated as
-  hostile input: compression pointers may only point backwards (no loops), and anything with
-  control characters is rejected, so a DNS answer can't inject escape codes into your terminal.
+  hostile input: each compression pointer must land before everything already read for that
+  name, so pointers can't loop ("backwards" alone wasn't enough, which fuzzing showed), and
+  anything with control characters is rejected, so a DNS answer can't inject escape codes into
+  your terminal.
 - **Least privilege.** The binary gets `CAP_NET_RAW` + `CAP_NET_ADMIN` via `setcap` instead of
   running as root. Missing permission produces the exact command to fix it, not an errno string.
 - **DNS can't stall anything.** Reverse lookups run on worker threads with a session cache;
@@ -177,8 +179,18 @@ ctest --test-dir ~/netpulse-build --output-on-failure
   independently of the C++ code. Replays run on the file's own clock, so results are the same
   on every machine. The demo runs through the same pipeline in a test too, which checks that
   it still tells the story it's meant to.
+- **Fuzzing** ([`fuzz/`](fuzz/)): the code that reads untrusted bytes, checked against
+  properties rather than just "doesn't crash". The packet parser and aggregator get arbitrary
+  frames; the DNS-answer parser gets arbitrary messages and must only return terminal-safe
+  names; and the kernel capture filter is checked *differentially* against the C++ parser,
+  since they're two independent answers to "is this a DNS response?" and must agree on every
+  frame. Each target runs as an ordinary test (seed frames plus random mutations), and with
+  clang as a coverage-guided libFuzzer binary: `tools/fuzz.sh [seconds]`. Deliberately
+  injected bugs (wrong ports, a dropped fragment check, a wrong header offset, a pointer loop,
+  a control-character leak) are each caught.
 - **CI** (GitHub Actions) runs everything three ways: a `-Werror` release build,
-  AddressSanitizer + UndefinedBehaviorSanitizer, and ThreadSanitizer.
+  AddressSanitizer + UndefinedBehaviorSanitizer, and ThreadSanitizer. A fourth job fuzzes each
+  target for a minute with libFuzzer.
 
 To run a sanitizer build locally:
 
@@ -202,6 +214,7 @@ src/pipeline/   the threads and the hand-offs between them
 src/ui/         FTXUI dashboard and plain-text report
 src/util/       bounded queue, IPv4/IPv6 address type, formatting
 tests/          Catch2 suite
+fuzz/           fuzz targets, the driver that runs them as tests, DNS seed corpus
 tools/          fixture generator, live benchmark, demo recording (record_demo.sh draws
                 docs/demo.svg from tmux captures with terminal_svg.py)
 ```
