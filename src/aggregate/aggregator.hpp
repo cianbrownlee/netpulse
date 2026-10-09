@@ -17,6 +17,8 @@ struct HostStats {
     std::uint64_t bytes = 0;
     Clock::time_point first_seen{};
     Clock::time_point last_seen{};
+    double current_bps = 0;  // smoothed recent rate
+    std::uint64_t bytes_at_last_tick = 0;
 };
 
 // Turns a stream of parsed packets into running statistics.
@@ -32,6 +34,10 @@ public:
         // memory tracks *active* connections rather than every connection ever seen.
         std::chrono::seconds flow_idle_timeout{120};
         std::size_t top_n = 10;
+        // Smoothing for "current" rates (exponentially weighted, this time constant): long
+        // enough that one burst doesn't look like a trend, short enough to feel live.
+        std::chrono::seconds rate_time_constant{3};
+        std::size_t rate_leaders = 5;
     };
 
     Aggregator();
@@ -40,8 +46,9 @@ public:
     // `wire_length` is the frame's full on-the-wire size, which can exceed the captured bytes.
     void ingest(const PacketInfo& info, std::uint32_t wire_length, Clock::time_point t);
 
-    // Advances the throughput window, expires idle flows, and copies out the top-N views.
-    // Host names and capture health are left empty; the pipeline fills those in.
+    // Advances the throughput window, updates smoothed rates, expires idle flows, and copies
+    // out the top-N views. Names, categories, capture health and status are left for the
+    // pipeline to fill in.
     Snapshot build_snapshot(Clock::time_point now);
 
     void expire_idle_flows(Clock::time_point now);
@@ -53,6 +60,8 @@ public:
 private:
     TrafficCounter& counter_for(PacketKind kind);
     void credit_host(std::uint32_t ip, std::uint32_t bytes, Clock::time_point t);
+    void update_rates(Clock::time_point now);
+    HostRow host_row(std::uint32_t ip, const HostStats& h, Clock::time_point now) const;
 
     Config config_;
     TrafficCounter total_, tcp_, udp_, other_ipv4_, non_ipv4_, malformed_;
@@ -60,6 +69,11 @@ private:
     std::unordered_map<FlowKey, FlowStats> flows_;
     std::unordered_map<std::uint32_t, HostStats> hosts_;
     Clock::time_point last_expiry_{};
+
+    bool rates_started_ = false;
+    Clock::time_point last_tick_{};
+    double total_current_bps_ = 0;
+    std::uint64_t total_bytes_at_last_tick_ = 0;
 };
 
 }  // namespace netpulse

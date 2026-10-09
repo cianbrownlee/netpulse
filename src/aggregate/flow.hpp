@@ -26,6 +26,11 @@ struct FlowKey {
     bool operator==(const FlowKey&) const = default;
 };
 
+// Whole-second index of a time point, used to count distinct active seconds.
+inline std::int64_t second_index(Clock::time_point t) {
+    return std::chrono::duration_cast<std::chrono::seconds>(t.time_since_epoch()).count();
+}
+
 struct FlowStats {
     std::uint64_t packets = 0;
     std::uint64_t bytes = 0;
@@ -33,6 +38,22 @@ struct FlowStats {
     std::uint64_t bytes_b_to_a = 0;
     Clock::time_point first_seen{};
     Clock::time_point last_seen{};
+
+    // How many distinct whole seconds carried traffic. Set against the flow's lifetime this
+    // is a duty cycle, which separates a continuous transfer (~100%) from the on/off bursts of
+    // video streaming, without storing any per-second history.
+    std::uint32_t active_seconds = 0;
+    std::int64_t last_active_second = -1;
+
+    // Smoothed recent rate, maintained by Aggregator::build_snapshot.
+    double current_bps = 0;
+    std::uint64_t bytes_at_last_tick = 0;
+
+    double duty_cycle() const {
+        const std::int64_t lifetime = second_index(last_seen) - second_index(first_seen) + 1;
+        return lifetime <= 0 ? 0.0 : static_cast<double>(active_seconds) / static_cast<double>(lifetime);
+    }
+    std::chrono::duration<double> duration() const { return last_seen - first_seen; }
 };
 
 struct DirectedFlowKey {

@@ -13,7 +13,7 @@ ends with something runnable and a check-in before moving on.
 | 2. Concurrency core | **Done, verified on live traffic**, except the load test under `iperf3` |
 | 3. Async hostname resolution | **Done, verified live** (real reverse-DNS names appear) |
 | 4. Core dashboard | **Done.** Focus model (follows items across re-sorts, unit-tested), Learn panel, scrolling, keyboard + mouse wheel; verified by driving it with real keystrokes |
-| 5. Teaching layer | **5b partly done early:** cursor, Learn panel and glossary are in. Remaining: 5a classifier + status sentence, then the category section and classifier-tag explanations |
+| 5. Teaching layer | **Done, pending live check.** Classifier and status line (pure, unit-tested), category section, per-device "now" rates, and "why" explanations for every judgment. Verified end to end on a 70 s replay with one of each traffic pattern; still needs a look on real traffic and threshold tuning |
 | 6. Benchmarking & least privilege | `setcap` flow + actionable permission error done; benchmarking not started |
 | 7. Docs, CI, polish | CI workflow written (3 jobs); README is a working draft |
 
@@ -28,6 +28,17 @@ ends with something runnable and a check-in before moving on.
    shutdown. Design doc 3.6 updated.
 4. *(Found while building)* **`setcap` doesn't work on `/mnt/c`** (no xattrs on DrvFs), so the build
    directory must live on the Linux filesystem. Design doc Section 10 updated.
+5. *(Stage 5)* **Streaming vs. file transfer was backwards.** The original rule called steady flows
+   streaming and bursty ones file transfers; adaptive video actually arrives in on/off bursts while
+   downloads run flat out. The classifier uses duty cycle accordingly.
+6. *(Stage 5)* **QUIC.** Much streaming is UDP on port 443, which TCP-only rules would miss; UDP 443
+   is treated as web traffic.
+7. *(Stage 5)* **`steamcontent.com`** serves game downloads, so it maps to File transfer, not
+   Calls/Gaming.
+8. *(Stage 5)* **Status guard rails** the original spec didn't have: a 60 s warm-up (otherwise every
+   device is "new" at startup), a minimum traffic level (3x of almost nothing is noise), a 10 s hold
+   (no flicker), and the tool-health check moved to first priority (when NetPulse is dropping
+   packets, its other numbers are less trustworthy).
 
 ## Stages
 

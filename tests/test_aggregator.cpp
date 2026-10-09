@@ -126,3 +126,54 @@ TEST_CASE("snapshot carries current throughput and history", "[aggregate]") {
     REQUIRE(s.byte_history.size() == 60);
     CHECK(s.byte_history.back() == 2000);
 }
+
+TEST_CASE("duty cycle counts the seconds that carried traffic", "[aggregate]") {
+    Aggregator agg;
+    // Seconds 0, 1, 2 (twice in second 2), then nothing until second 10.
+    for (auto t : {0ms, 1100ms, 2100ms, 2500ms, 10100ms}) {
+        ingest_frame(agg, tcp_frame(kLaptop, 1, kServer, 443), 100, t0 + t);
+    }
+    const FlowStats& f = agg.flows().begin()->second;
+    CHECK(f.active_seconds == 4);
+    CHECK(f.duty_cycle() == 4.0 / 11.0);
+}
+
+TEST_CASE("current rates rise with sustained traffic and decay when it stops", "[aggregate]") {
+    Aggregator agg;
+    Snapshot s;
+    // 250 kB every 250 ms for 6 s: a steady 1 MB/s, snapshot after each chunk.
+    for (int i = 0; i < 24; ++i) {
+        const auto t = t0 + std::chrono::milliseconds(250 * i);
+        ingest_frame(agg, tcp_frame(kServer, 443, kLaptop, 51000), 250'000, t);
+        s = agg.build_snapshot(t + 249ms);
+    }
+    CHECK(s.current_bps > 750'000);  // ~86% of the way there after two time constants
+    CHECK(s.current_bps < 1'050'000);
+    REQUIRE(s.busiest_flow.has_value());
+    CHECK(s.busiest_flow->stats.current_bps > 750'000);
+    REQUIRE_FALSE(s.rate_leaders.empty());
+    CHECK(s.rate_leaders.front().current_bps > 750'000);
+    CHECK(s.rate_leaders.front().average_bps > 900'000);  // 6 MB over ~6 s
+
+    // Ten quiet seconds later.
+    for (int i = 1; i <= 40; ++i) s = agg.build_snapshot(t0 + 6s + std::chrono::milliseconds(250 * i));
+    CHECK(s.current_bps < 50'000);
+    CHECK(s.rate_leaders.front().current_bps < 50'000);
+}
+
+TEST_CASE("rate leaders are ordered by what is busy now, not by history", "[aggregate]") {
+    Aggregator agg;
+    // The TV moved a lot early on; the laptop is the one busy at the end.
+    ingest_frame(agg, udp_frame(kTv, 5, kServer, 6), 50'000'000, t0);
+    agg.build_snapshot(t0 + 1s);
+    Snapshot s;
+    for (int i = 0; i < 40; ++i) {
+        const auto t = t0 + 30s + std::chrono::milliseconds(250 * i);
+        ingest_frame(agg, tcp_frame(kServer, 443, kLaptop, 51000), 100'000, t);
+        s = agg.build_snapshot(t + 1ms);
+    }
+    CHECK(s.top_hosts.front().ip == kServer);    // most bytes overall (party to both)
+    CHECK(s.top_hosts[1].ip == kTv);
+    CHECK(s.rate_leaders.front().ip == kServer);
+    CHECK(s.rate_leaders[1].ip == kLaptop);      // busy now, despite fewer total bytes
+}

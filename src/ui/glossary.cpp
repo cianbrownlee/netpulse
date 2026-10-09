@@ -80,6 +80,16 @@ constexpr std::array kGlossary = {
                   "that private side, or is one devices use to announce things to everyone nearby "
                   "(multicast and broadcast). \"Internet\" means a public address out on the wider "
                   "internet."},
+    GlossaryEntry{"flow-shape-heuristic", "Flow-shape heuristic",
+                  "A label based on the shape of a conversation: how long it lasts, how much data "
+                  "moves and in which direction, and whether it flows continuously or in bursts. "
+                  "Not on what's inside it, which is encrypted and never read. It's an educated "
+                  "guess and can be wrong, which is why it's labeled as one."},
+    GlossaryEntry{"known-domain-match", "Known-domain match",
+                  "A label based on who the traffic is going to: the address's name, found through "
+                  "a reverse DNS lookup, matched NetPulse's short built-in list of well-known "
+                  "services (like nflxvideo.net for streaming). More reliable than a pattern "
+                  "guess, but the list is small and many services' addresses have no such name."},
 };
 
 }  // namespace

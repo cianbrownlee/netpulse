@@ -57,6 +57,8 @@ add_library(netpulse_core STATIC
   src/parse/packet_parser.cpp
   src/aggregate/throughput_window.cpp
   src/aggregate/aggregator.cpp
+  src/aggregate/classifier.cpp
+  src/aggregate/status_tracker.cpp
   src/resolve/resolver.cpp
   src/util/format.cpp
   src/util/net.cpp)
@@ -109,7 +111,9 @@ if(NETPULSE_BUILD_TESTS)
     tests/test_resolver.cpp
     tests/test_format.cpp
     tests/test_focus_model.cpp
-    tests/test_dashboard_model.cpp)
+    tests/test_dashboard_model.cpp
+    tests/test_classifier.cpp
+    tests/test_status_tracker.cpp)
   target_link_libraries(netpulse_tests PRIVATE netpulse_view Catch2::Catch2WithMain)
   target_include_directories(netpulse_tests PRIVATE tests)
   # Discover test cases when ctest runs rather than as a post-build step, so building never
@@ -123,4 +127,11 @@ if(NETPULSE_BUILD_TESTS)
     COMMAND netpulse --read ${CMAKE_SOURCE_DIR}/sample_pcaps/synthetic.pcap --plain --no-resolve)
   set_tests_properties(replay_synthetic_pcap PROPERTIES
     PASS_REGULAR_EXPRESSION "summary: packets=64 bytes=42776 tcp=40 udp=16 other_ipv4=2 non_ipv4=3 malformed=3 flows=5 hosts=7 missed=0")
+
+  # End-to-end for the classifier and status line: one conversation of each traffic pattern,
+  # ending in a large download that should read as "a lot more data than usual".
+  add_test(NAME replay_traffic_mix_pcap
+    COMMAND netpulse --read ${CMAKE_SOURCE_DIR}/sample_pcaps/traffic_mix.pcap --plain --no-resolve)
+  set_tests_properties(replay_traffic_mix_pcap PROPERTIES
+    PASS_REGULAR_EXPRESSION "categories: streaming=1 browsing=8 calls-gaming=1 file-transfer=1 other=1\nstatus: device-above-usual")
 endif()

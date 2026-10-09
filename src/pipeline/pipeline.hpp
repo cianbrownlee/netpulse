@@ -11,6 +11,7 @@
 
 #include "aggregate/aggregator.hpp"
 #include "aggregate/snapshot.hpp"
+#include "aggregate/status_tracker.hpp"
 #include "capture/packet_capture.hpp"
 #include "resolve/resolver.hpp"
 #include "util/bounded_queue.hpp"
@@ -63,12 +64,19 @@ private:
     void aggregate_loop();
     Clock::time_point traffic_time() const;
     void publish(Clock::time_point now, Clock::duration uptime);
-    std::string name_for(std::uint32_t ip);
+    void categorize(Snapshot& snapshot);
+
+    struct NameLookup {
+        NameState state = NameState::Unknown;
+        std::string name;
+    };
+    NameLookup lookup_name(std::uint32_t ip);
 
     Config config_;
     std::unique_ptr<PacketCapture> capture_;
     BoundedQueue<CapturedPacket> queue_;
     Aggregator aggregator_;  // touched only by the aggregator thread
+    StatusTracker status_;   // likewise
     std::unique_ptr<Resolver> resolver_;
     Clock::time_point started_at_{};
     Clock::time_point latest_packet_time_{};  // aggregator thread only

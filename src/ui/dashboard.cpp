@@ -13,7 +13,6 @@
 #include "pipeline/pipeline.hpp"
 #include "ui/dashboard_model.hpp"
 #include "ui/focus_model.hpp"
-#include "ui/glossary.hpp"
 #include "ui/labels.hpp"
 #include "util/format.hpp"
 #include "util/net.hpp"
@@ -71,6 +70,45 @@ Element header(const Snapshot& s, const Pipeline& p) {
     });
 }
 
+// The status sentence: green when nothing stands out, amber for a heads-up. Never red: a tool
+// that can't see packet contents has no business making threat judgments.
+Element status_row(const Snapshot& s, const FocusModel& model) {
+    const Color dot = s.status.heads_up() ? Color::Yellow : Color::Green;
+    return selectable(hbox({text("● ") | color(dot), text(s.status.headline) | bold}),
+                      model.is_focused(kStatusRowId));
+}
+
+Element categories(const Snapshot& s, const FocusModel& model) {
+    std::uint64_t shown_bytes = 0;
+    for (const auto& c : s.categories) shown_bytes += c.bytes;
+
+    Elements rows;
+    for (const auto& c : s.categories) {
+        const double share = share_of(c.bytes, shown_bytes);
+        rows.push_back(selectable(hbox({
+                                      cell(category_label(c.category), 19),
+                                      cell(method_tag(c.main_method), 25) | dim,
+                                      right_cell(format_percent(share), 5),
+                                      text("  "),
+                                      gauge(static_cast<float>(share)) | color(Color::Cyan) |
+                                          size(WIDTH, EQUAL, 20),
+                                      right_cell(format_bytes(static_cast<double>(c.bytes)), 10),
+                                      right_cell(format_count(c.flows) +
+                                                     (c.flows == 1 ? " conversation" : " conversations"),
+                                                 19),
+                                  }),
+                                  model.is_focused(category_row_id(c.category))));
+    }
+    if (s.categories.empty()) rows.push_back(text("  waiting for traffic...") | dim);
+    if (s.background_bytes > 0) {
+        rows.push_back(text("  Not counted: " + format_bytes(static_cast<double>(s.background_bytes)) +
+                            " of background traffic (DNS, time sync, device discovery, ping).") |
+                       dim);
+    }
+    return window(text(" Traffic by category (active conversations; a best guess, see tags) "),
+                  vbox(std::move(rows)));
+}
+
 Element throughput_row(const Snapshot& s, const FocusModel& model) {
     return selectable(hbox({
                           text("Throughput  "),
@@ -108,11 +146,13 @@ Element protocols(const Snapshot& s, const FocusModel& model) {
 
 Element top_talkers(const Snapshot& s, const FocusModel& model) {
     Elements rows;
-    rows.push_back(hbox({text("  "), cell("Device / address", 50), right_cell("Bytes", 10),
-                         right_cell("Of all traffic", 16), text("   Where")}) | dim);
+    rows.push_back(hbox({text("  "), cell("Device / address", 46), right_cell("Now", 11),
+                         right_cell("Bytes", 10), right_cell("Of all traffic", 16),
+                         text("   Where")}) | dim);
     for (const auto& h : s.top_hosts) {
         rows.push_back(selectable(hbox({
-                                      cell(host_label(h.ip, h.name), 50),
+                                      cell(host_label(h.ip, h.name), 46),
+                                      right_cell(format_rate(h.current_bps), 11),
                                       right_cell(format_bytes(static_cast<double>(h.bytes)), 10),
                                       right_cell(format_percent(share_of(h.bytes, s.total.bytes)), 16),
                                       text(h.is_local ? "   local" : "   internet"),
@@ -130,14 +170,16 @@ Element top_talkers(const Snapshot& s, const FocusModel& model) {
 
 Element top_flows(const Snapshot& s, const FocusModel& model) {
     Elements rows;
-    rows.push_back(hbox({text("  "), cell("Proto", 6), cell("Conversation", 70),
-                         right_cell("Bytes", 10), right_cell("Packets", 12)}) | dim);
+    rows.push_back(hbox({text("  "), cell("Proto", 6), cell("Conversation", 60),
+                         cell("Kind", 11), right_cell("Bytes", 10), right_cell("Packets", 10)}) |
+                   dim);
     for (const auto& f : s.top_flows) {
         rows.push_back(selectable(hbox({
                                       cell(ip_protocol_name(f.key.protocol), 6),
-                                      cell(conversation_label(f, "  ⇄  "), 70),
+                                      cell(conversation_label(f, "  ⇄  "), 60),
+                                      cell(category_short_label(f.category), 11),
                                       right_cell(format_bytes(static_cast<double>(f.stats.bytes)), 10),
-                                      right_cell(format_count(f.stats.packets), 12),
+                                      right_cell(format_count(f.stats.packets), 10),
                                   }),
                                   model.is_focused(flow_row_id(f.key))));
     }
@@ -147,23 +189,23 @@ Element top_flows(const Snapshot& s, const FocusModel& model) {
 
 // The persistent explanation for whatever is focused. There is no mode to enter or leave:
 // moving the cursor is all it takes.
-Element learn_panel(const FocusModel& model) {
+Element learn_panel(const FocusModel& model, const Snapshot& s) {
     const std::string* term = model.focused_term();
-    const GlossaryEntry* entry = term ? find_glossary_entry(*term) : nullptr;
-    if (!entry) {
+    const auto content = term ? learn_content(*term, s) : std::nullopt;
+    if (!content) {
         return window(text(" Learn "),
                       text(" Move the cursor with ↑↓ to see what anything on screen means.") | dim |
                           size(HEIGHT, EQUAL, kLearnTextLines));
     }
 
-    std::string title = " Learn: " + std::string(entry->title) + " ";
+    std::string title = " Learn: " + content->title + " ";
     const std::size_t term_count = model.focused_row()->terms.size();
     if (term_count > 1) {
         title += "· " + std::to_string(model.term_index() + 1) + " of " +
                  std::to_string(term_count) + ", ←→ for more ";
     }
     return window(text(title) | bold,
-                  hbox({text(" "), paragraph(std::string(entry->text)) | flex, text(" ")}) |
+                  hbox({text(" "), paragraph(content->text) | flex, text(" ")}) |
                       size(HEIGHT, EQUAL, kLearnTextLines));
 }
 
@@ -205,12 +247,14 @@ void run_dashboard(Pipeline& pipeline) {
             header(s, pipeline),
             separator(),
             vbox({
+                status_row(s, model),
                 throughput_row(s, model),
+                categories(s, model),
                 protocols(s, model),
                 top_talkers(s, model),
                 top_flows(s, model),
             }) | yframe | flex,
-            learn_panel(model),
+            learn_panel(model, s),
             footer(s, model),
         });
     });

@@ -26,10 +26,28 @@ std::string protocol_line(const char* label, const TrafficCounter& c, const Traf
 void print_report(std::ostream& out, const Snapshot& s, const std::string& source) {
     const auto uptime = std::chrono::duration_cast<std::chrono::seconds>(s.uptime);
     out << "== NetPulse · " << source << " · running " << format_duration(uptime) << " ==\n";
+    out << (s.status.heads_up() ? "[!] " : "[ok] ") << s.status.headline << "\n";
     out << "Throughput: " << format_rate(s.bytes_per_second) << " · "
         << format_count(static_cast<std::uint64_t>(s.packets_per_second)) << " packets/s\n";
     out << "Total: " << format_count(s.total.packets) << " packets, "
         << format_bytes(static_cast<double>(s.total.bytes)) << "\n";
+
+    out << "Traffic by category (active conversations):\n";
+    std::uint64_t shown_bytes = 0;
+    for (const auto& c : s.categories) shown_bytes += c.bytes;
+    for (const auto& c : s.categories) {
+        const double share =
+            shown_bytes == 0 ? 0.0 : static_cast<double>(c.bytes) / static_cast<double>(shown_bytes);
+        char buf[160];
+        std::snprintf(buf, sizeof buf, "  %-18s %-23s %5s  %10s\n", category_label(c.category),
+                      method_tag(c.main_method), format_percent(share).c_str(),
+                      format_bytes(static_cast<double>(c.bytes)).c_str());
+        out << buf;
+    }
+    if (s.background_bytes > 0) {
+        out << "  (not counted: " << format_bytes(static_cast<double>(s.background_bytes))
+            << " of background traffic)\n";
+    }
 
     out << "Protocols:\n";
     out << protocol_line("TCP", s.tcp, s.total);
@@ -50,8 +68,8 @@ void print_report(std::ostream& out, const Snapshot& s, const std::string& sourc
     out << "Top flows:\n";
     for (const auto& f : s.top_flows) {
         char buf[320];
-        std::snprintf(buf, sizeof buf, "  %-5s %s  %s  (%s pkts)\n",
-                      ip_protocol_name(f.key.protocol).c_str(),
+        std::snprintf(buf, sizeof buf, "  %-5s %-10s %s  %s  (%s pkts)\n",
+                      ip_protocol_name(f.key.protocol).c_str(), category_short_label(f.category),
                       conversation_label(f, " <-> ").c_str(),
                       format_bytes(static_cast<double>(f.stats.bytes)).c_str(),
                       format_count(f.stats.packets).c_str());
@@ -67,6 +85,17 @@ void print_report(std::ostream& out, const Snapshot& s, const std::string& sourc
         << " other_ipv4=" << s.other_ipv4.packets << " non_ipv4=" << s.non_ipv4.packets
         << " malformed=" << s.malformed.packets << " flows=" << s.active_flows
         << " hosts=" << s.known_hosts << " missed=" << s.health.missed() << "\n";
+
+    // Conversations per category, every category always listed, in a fixed order.
+    out << "categories:";
+    for (const Category c : kShownCategories) {
+        std::size_t flows = 0;
+        for (const auto& row : s.categories) {
+            if (row.category == c) flows = row.flows;
+        }
+        out << ' ' << category_key(c) << '=' << flows;
+    }
+    out << "\nstatus: " << status_key(s.status.kind) << "\n";
     out.flush();
 }
 
