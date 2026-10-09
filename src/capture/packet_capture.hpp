@@ -71,16 +71,34 @@ public:
     LocalNetworks local_networks() const override { return local_networks_; }
 
     struct InterfaceInfo {
-        std::string name;
+        std::string name;         // what libpcap opens: "eth0", or "\Device\NPF_{...}" on Windows
+        std::string label;        // what people call it: "eth0", or "Wi-Fi" on Windows
+        std::string description;  // the adapter's model, where the system provides one
         bool up = false;
         bool loopback = false;
-        LocalNetworks networks;  // from the interface's addresses and netmasks
+        bool disconnected = false;  // known to have no link (e.g. Wi-Fi not joined to a network)
+        bool is_virtual = false;    // a hypervisor's, VM's or VPN's adapter rather than hardware
+        LocalNetworks networks;     // from the interface's addresses and netmasks
     };
     // Every capture interface with its networks. Needs no capture privileges.
     static std::vector<InterfaceInfo> describe_interfaces();
-    static std::vector<std::string> list_interfaces();
-    // First interface that is up, not loopback, and has an IPv4 address.
+    static std::vector<std::string> list_interfaces();  // labels
+    // The interface to capture on when none is named: up, not loopback, with an IPv4 address,
+    // preferring connected hardware over virtual adapters (on Windows, WSL's and Hyper-V's
+    // adapters are up and have addresses too).
     static std::optional<std::string> default_interface();
+    // The interface `wanted` refers to: its exact name or label, or failing that a unique
+    // case-insensitive match within labels and descriptions ("wi-fi", "ethernet"). Throws
+    // CaptureError if several match.
+    static std::optional<InterfaceInfo> find_interface(const std::string& wanted);
+
+    // The decisions behind default_interface() and find_interface(), on a given list (pure,
+    // so they're unit-tested on made-up adapters on any platform).
+    static std::optional<std::string> pick_default(const std::vector<InterfaceInfo>& interfaces);
+    static std::optional<InterfaceInfo> match_interface(const std::vector<InterfaceInfo>& interfaces,
+                                                        const std::string& wanted);
+    // Whether an adapter's name or description says it's a hypervisor's, VM's or tunnel's.
+    static bool looks_virtual(const std::string& label, const std::string& description);
 
 private:
     PacketCapture(pcap* handle, bool offline, std::string description);

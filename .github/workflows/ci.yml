@@ -57,6 +57,30 @@ jobs:
           TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
         run: ctest --test-dir build --output-on-failure
 
+  windows:
+    name: windows (MSVC)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      # The Npcap SDK (headers and import library) is a free download. The Npcap driver itself
+      # can't be installed unattended without a commercial license, so the two replays, which
+      # open capture files through it, are skipped here; everything else runs, --demo included.
+      - name: Npcap SDK
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://npcap.com/dist/npcap-sdk-1.16.zip -OutFile npcap-sdk.zip
+          Expand-Archive npcap-sdk.zip -DestinationPath npcap-sdk
+
+      - name: Configure
+        run: cmake -S . -B build -A x64 -DNPCAP_SDK="${{ github.workspace }}/npcap-sdk" -DNETPULSE_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure -E "^replay_"
+
   # Coverage-guided fuzzing of the code that reads untrusted bytes: the packet parser (with the
   # aggregator behind it), the DNS-answer parser, and the kernel capture filter checked against
   # the parser. A minute each per push; the regular test jobs also run every target over the

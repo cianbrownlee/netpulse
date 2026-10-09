@@ -1,11 +1,11 @@
 #include "util/local_networks.hpp"
 
-#include <arpa/inet.h>
-
 #include <algorithm>
 #include <charconv>
 
 #include "util/net.hpp"
+#include "util/platform.hpp"
+#include "util/sockets.hpp"
 
 namespace netpulse {
 
@@ -22,6 +22,7 @@ IpAddress mask_to_prefix(const IpAddress& address, int bits) {
 }
 
 std::optional<IpAddress> parse_address(const std::string& text) {
+    ensure_sockets();
     std::uint8_t v4[4];
     if (inet_pton(AF_INET, text.c_str(), v4) == 1) return IpAddress::v4(v4[0], v4[1], v4[2], v4[3]);
     IpAddress::Bytes v6{};

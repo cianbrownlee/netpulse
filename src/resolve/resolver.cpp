@@ -1,11 +1,5 @@
 #include "resolve/resolver.hpp"
 
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <pthread.h>
-#include <sys/socket.h>
-
 #include <chrono>
 #include <cstring>
 #include <mutex>
@@ -13,24 +7,29 @@
 #include <utility>
 
 #include "util/bounded_queue.hpp"
+#include "util/platform.hpp"
+#include "util/sockets.hpp"
 
 namespace netpulse {
 
 std::optional<std::string> reverse_dns_lookup(const IpAddress& ip) {
+    ensure_sockets();
     char host[NI_MAXHOST];
+    auto lookup = [&](const auto& addr) {
+        return getnameinfo(reinterpret_cast<const sockaddr*>(&addr), static_cast<socklen_t>(sizeof addr),
+                           host, static_cast<socklen_t>(sizeof host), nullptr, 0, NI_NAMEREQD);
+    };
     int rc = 0;
     if (ip.is_v4()) {
         sockaddr_in addr{};
         addr.sin_family = AF_INET;
         addr.sin_addr.s_addr = htonl(ip.v4_value());
-        rc = getnameinfo(reinterpret_cast<const sockaddr*>(&addr), sizeof addr, host, sizeof host,
-                         nullptr, 0, NI_NAMEREQD);
+        rc = lookup(addr);
     } else {
         sockaddr_in6 addr{};
         addr.sin6_family = AF_INET6;
         std::memcpy(addr.sin6_addr.s6_addr, ip.bytes().data(), 16);
-        rc = getnameinfo(reinterpret_cast<const sockaddr*>(&addr), sizeof addr, host, sizeof host,
-                         nullptr, 0, NI_NAMEREQD);
+        rc = lookup(addr);
     }
     if (rc != 0) return std::nullopt;
     return std::string(host);
@@ -77,7 +76,7 @@ Resolver::Result Resolver::lookup(const IpAddress& ip) {
 }
 
 void Resolver::worker_loop(std::shared_ptr<State> state) {
-    pthread_setname_np(pthread_self(), "np-resolve");
+    set_thread_name("np-resolve");
     // Once closed, abandon whatever is still queued: nobody is left to read the answers.
     while (!state->pending.closed()) {
         auto ip = state->pending.pop_for(std::chrono::milliseconds(200));

@@ -20,12 +20,21 @@ set(NETPULSE_SANITIZER "" CACHE STRING "Sanitizers to enable, e.g. 'address,unde
 include(FetchContent)
 find_package(Threads REQUIRED)
 
-find_path(PCAP_INCLUDE_DIR pcap.h REQUIRED)
-find_library(PCAP_LIBRARY pcap REQUIRED)
+# libpcap on Linux; on Windows, Npcap's SDK (https://npcap.com), passed as -DNPCAP_SDK=<dir>.
+set(NPCAP_SDK "" CACHE PATH "Windows: where the Npcap SDK is unpacked")
+find_path(PCAP_INCLUDE_DIR pcap.h HINTS "${NPCAP_SDK}/Include" REQUIRED)
+find_library(PCAP_LIBRARY NAMES pcap wpcap HINTS "${NPCAP_SDK}/Lib/x64" REQUIRED)
 add_library(pcap::pcap UNKNOWN IMPORTED)
 set_target_properties(pcap::pcap PROPERTIES
   IMPORTED_LOCATION "${PCAP_LIBRARY}"
   INTERFACE_INCLUDE_DIRECTORIES "${PCAP_INCLUDE_DIR}")
+if(WIN32)
+  # Npcap's DLLs live off the default search path; NetPulse delay-loads wpcap.dll and points
+  # the loader at them at run time (see load_npcap), so a missing Npcap is a message, not a
+  # failure to start. iphlpapi gives adapters their Windows names ("Wi-Fi").
+  set_property(TARGET pcap::pcap APPEND PROPERTY INTERFACE_LINK_LIBRARIES delayimp iphlpapi)
+  set_property(TARGET pcap::pcap APPEND PROPERTY INTERFACE_LINK_OPTIONS /DELAYLOAD:wpcap.dll)
+endif()
 
 FetchContent_Declare(ftxui
   GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI.git
@@ -37,9 +46,23 @@ FetchContent_MakeAvailable(ftxui)
 # Shared compile options for NetPulse's own targets (not third-party code)
 # ---------------------------------------------------------------------------
 add_library(netpulse_options INTERFACE)
-target_compile_options(netpulse_options INTERFACE -Wall -Wextra -Wpedantic -Wshadow)
-if(NETPULSE_WARNINGS_AS_ERRORS)
-  target_compile_options(netpulse_options INTERFACE -Werror)
+if(MSVC)
+  # /utf-8: the sources hold UTF-8 text (box drawing, arrows). The definitions keep <windows.h>
+  # from defining min/max macros and from pulling in most of the Windows API.
+  target_compile_options(netpulse_options INTERFACE /W4 /permissive- /utf-8 /Zc:__cplusplus)
+  target_compile_definitions(netpulse_options INTERFACE
+    NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00 _CRT_SECURE_NO_WARNINGS)
+  if(NETPULSE_WARNINGS_AS_ERRORS)
+    target_compile_options(netpulse_options INTERFACE /WX)
+  endif()
+else()
+  target_compile_options(netpulse_options INTERFACE -Wall -Wextra -Wpedantic -Wshadow)
+  if(NETPULSE_WARNINGS_AS_ERRORS)
+    target_compile_options(netpulse_options INTERFACE -Werror)
+  endif()
+endif()
+if(WIN32)
+  target_link_libraries(netpulse_options INTERFACE ws2_32)
 endif()
 if(NETPULSE_SANITIZER)
   target_compile_options(netpulse_options INTERFACE
@@ -66,7 +89,8 @@ add_library(netpulse_core STATIC
   src/util/format.cpp
   src/util/net.cpp
   src/util/ip_address.cpp
-  src/util/local_networks.cpp)
+  src/util/local_networks.cpp
+  src/util/platform.cpp)
 target_include_directories(netpulse_core PUBLIC src)
 target_link_libraries(netpulse_core PUBLIC Threads::Threads netpulse_options)
 
@@ -98,9 +122,12 @@ target_link_libraries(netpulse_ui PUBLIC netpulse_capture netpulse_view
 add_executable(netpulse src/main.cpp)
 target_link_libraries(netpulse PRIVATE netpulse_ui netpulse_demo)
 
-# Synthetic-load benchmark of the pipeline itself (no capture privileges needed).
-add_executable(netpulse_bench src/bench/bench_main.cpp)
-target_link_libraries(netpulse_bench PRIVATE netpulse_capture)
+# Synthetic-load benchmark of the pipeline itself (no capture privileges needed). Linux only:
+# it measures CPU and context switches with getrusage.
+if(NOT WIN32)
+  add_executable(netpulse_bench src/bench/bench_main.cpp)
+  target_link_libraries(netpulse_bench PRIVATE netpulse_capture)
+endif()
 
 # ---------------------------------------------------------------------------
 # Tests
@@ -132,7 +159,8 @@ if(NETPULSE_BUILD_TESTS)
     tests/test_dns.cpp
     tests/test_capture_filter.cpp
     tests/test_demo.cpp
-    tests/test_labels.cpp)
+    tests/test_labels.cpp
+    tests/test_interfaces.cpp)
   target_link_libraries(netpulse_tests PRIVATE netpulse_view netpulse_capture netpulse_demo
     Catch2::Catch2WithMain)
   target_include_directories(netpulse_tests PRIVATE tests)
@@ -189,7 +217,7 @@ if(NETPULSE_FUZZ)
     target_include_directories(${target} PRIVATE fuzz tests)
     target_link_options(${target} PRIVATE -fsanitize=fuzzer)
   endforeach()
-elseif(NETPULSE_BUILD_TESTS)
+elseif(NETPULSE_BUILD_TESTS AND NOT WIN32)  # the standalone driver uses POSIX calls
   foreach(target ${NETPULSE_FUZZ_TARGETS})
     add_executable(${target} fuzz/${target}.cpp fuzz/standalone_main.cpp)
     target_link_libraries(${target} PRIVATE netpulse_core)

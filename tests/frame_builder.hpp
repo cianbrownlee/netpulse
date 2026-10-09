@@ -4,8 +4,6 @@
 // from the parser (big-endian writes here, big-endian reads there) so a shared misconception
 // about the wire format would have to be made twice to go unnoticed.
 
-#include <arpa/inet.h>
-
 #include <cstddef>
 #include <cstdint>
 #include <stdexcept>
@@ -15,6 +13,8 @@
 #include <vector>
 
 #include "util/ip_address.hpp"
+#include "util/platform.hpp"
+#include "util/sockets.hpp"
 
 namespace netpulse::test {
 
@@ -26,6 +26,7 @@ constexpr IpAddress ip(std::uint8_t a, std::uint8_t b, std::uint8_t c, std::uint
 
 // IPv6 from its text form, e.g. ip6("2001:db8::1").
 inline IpAddress ip6(const char* text) {
+    ensure_sockets();
     IpAddress::Bytes bytes{};
     if (inet_pton(AF_INET6, text, bytes.data()) != 1) throw std::invalid_argument(text);
     return IpAddress::v6(bytes);

@@ -1,5 +1,3 @@
-#include <unistd.h>
-
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -15,6 +13,7 @@
 #include "pipeline/pipeline.hpp"
 #include "ui/dashboard.hpp"
 #include "ui/plain_report.hpp"
+#include "util/platform.hpp"
 
 namespace {
 
@@ -38,7 +37,8 @@ void print_usage(std::ostream& out) {
            "Live network traffic analyzer. Captures packet headers (never contents) and shows\n"
            "throughput, protocols, top talkers and flows.\n"
            "\n"
-           "  -i, --interface NAME   capture live from NAME (default: first active non-loopback)\n"
+           "  -i, --interface NAME   capture live from NAME, e.g. eth0 or Wi-Fi (default: the\n"
+           "                         active network adapter; see --list-interfaces)\n"
            "  -r, --read FILE        replay a .pcap file instead of capturing live\n"
            "      --demo             show simulated traffic from a small household (no capture\n"
            "                         permissions needed; addresses are documentation examples)\n"
@@ -155,15 +155,25 @@ int run_plain(Pipeline& pipeline, const Options& opts) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    use_utf8_console();
     const auto opts = parse_args(argc, argv);
     if (!opts) return 2;
 
     if (opts->list_interfaces) {
-        for (const auto& i : PacketCapture::describe_interfaces()) {
-            std::cout << i.name;
-            if (!i.up) std::cout << " (down)";
-            if (!i.networks.empty()) std::cout << "  " << i.networks.to_string();
-            std::cout << '\n';
+        try {
+            for (const auto& i : PacketCapture::describe_interfaces()) {
+                std::cout << i.label;
+                if (!i.up) std::cout << " (down)";
+                if (!i.networks.empty()) std::cout << "  " << i.networks.to_string();
+                std::cout << '\n';
+                // On Windows, the label ("Wi-Fi") is Windows' own name; say what it is too.
+                if (!i.description.empty() || i.name != i.label) {
+                    std::cout << "    " << (i.description.empty() ? i.name : i.description) << '\n';
+                }
+            }
+        } catch (const CaptureError& e) {
+            std::cerr << "netpulse: " << e.what() << '\n';
+            return 1;
         }
         return 0;
     }
@@ -192,7 +202,7 @@ int main(int argc, char** argv) {
     }
 
     pipeline->start();
-    const bool plain = opts->plain || !isatty(STDOUT_FILENO);
+    const bool plain = opts->plain || !stdout_is_terminal();
     const int status = plain ? run_plain(*pipeline, *opts) : (run_dashboard(*pipeline), 0);
     pipeline->stop();
 

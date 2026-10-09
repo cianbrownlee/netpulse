@@ -592,12 +592,12 @@ public:
             rng_));
         // The phone joins a video call.
         activities_.push_back(std::make_unique<Realtime>(
-            kPhone, kCallServer, 8801, kCallServerName,
+            kPhone, kCallServer, std::uint16_t{8801}, kCallServerName,
             Realtime::Shape{.start = 20, .packets_per_second = 50, .down_bytes = 1000, .up_bytes = 800},
             rng_));
         // The gaming PC plays online...
         activities_.push_back(std::make_unique<Realtime>(
-            kGamingPc, kGameServer, 27015, std::string_view{},
+            kGamingPc, kGameServer, std::uint16_t{27015}, std::string_view{},
             Realtime::Shape{.start = 0.2, .packets_per_second = 30, .down_bytes = 140, .up_bytes = 110},
             rng_));
         // ...and then starts a big game download, flat out (the scripted status-line event).

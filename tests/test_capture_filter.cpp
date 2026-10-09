@@ -12,7 +12,7 @@ using namespace netpulse::test;
 
 namespace {
 
-std::uint32_t keep(const std::vector<sock_filter>& program, const Bytes& frame) {
+std::uint32_t keep(const std::vector<BpfInstruction>& program, const Bytes& frame) {
     return run_bpf(program, std::span<const std::uint8_t>(frame));
 }
 

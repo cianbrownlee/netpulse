@@ -1,6 +1,7 @@
 #include "util/ip_address.hpp"
 
-#include <arpa/inet.h>
+#include "util/platform.hpp"
+#include "util/sockets.hpp"
 
 namespace netpulse {
 
@@ -24,6 +25,7 @@ std::string IpAddress::to_string() const {
     }
     // inet_ntop implements the RFC 5952 canonical form: lowercase hex, no leading zeros, and the
     // longest run of zero groups collapsed to "::".
+    ensure_sockets();
     char text[INET6_ADDRSTRLEN];
     if (inet_ntop(AF_INET6, bytes_.data(), text, sizeof text) == nullptr) return "?";
     return text;
