@@ -69,10 +69,18 @@ add_library(netpulse_capture STATIC
   src/pipeline/pipeline.cpp)
 target_link_libraries(netpulse_capture PUBLIC netpulse_core pcap::pcap)
 
+# UI logic with no FTXUI dependency (focus handling, glossary, what each row explains), so it
+# is unit-testable alongside the core.
+add_library(netpulse_view STATIC
+  src/ui/focus_model.cpp
+  src/ui/glossary.cpp
+  src/ui/dashboard_model.cpp)
+target_link_libraries(netpulse_view PUBLIC netpulse_core)
+
 add_library(netpulse_ui STATIC
   src/ui/dashboard.cpp
   src/ui/plain_report.cpp)
-target_link_libraries(netpulse_ui PUBLIC netpulse_capture
+target_link_libraries(netpulse_ui PUBLIC netpulse_capture netpulse_view
   ftxui::screen ftxui::dom ftxui::component)
 
 add_executable(netpulse src/main.cpp)
@@ -99,8 +107,10 @@ if(NETPULSE_BUILD_TESTS)
     tests/test_throughput_window.cpp
     tests/test_aggregator.cpp
     tests/test_resolver.cpp
-    tests/test_format.cpp)
-  target_link_libraries(netpulse_tests PRIVATE netpulse_core Catch2::Catch2WithMain)
+    tests/test_format.cpp
+    tests/test_focus_model.cpp
+    tests/test_dashboard_model.cpp)
+  target_link_libraries(netpulse_tests PRIVATE netpulse_view Catch2::Catch2WithMain)
   target_include_directories(netpulse_tests PRIVATE tests)
   # Discover test cases when ctest runs rather than as a post-build step, so building never
   # depends on being able to execute the binary (sanitizer runtimes, cross builds).

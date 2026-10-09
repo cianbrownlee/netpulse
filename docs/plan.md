@@ -12,8 +12,8 @@ ends with something runnable and a check-in before moving on.
 | 1. Header parsing | **Done.** 15 parser test cases incl. truncation, malformed headers, random garbage |
 | 2. Concurrency core | **Done, verified on live traffic**, except the load test under `iperf3` |
 | 3. Async hostname resolution | **Done, verified live** (real reverse-DNS names appear) |
-| 4. Core dashboard | **Thin slice done** (render-only). Selection-model spike and layout polish remain |
-| 5. Teaching layer | Not started |
+| 4. Core dashboard | **Done.** Focus model (follows items across re-sorts, unit-tested), Learn panel, scrolling, keyboard + mouse wheel; verified by driving it with real keystrokes |
+| 5. Teaching layer | **5b partly done early:** cursor, Learn panel and glossary are in. Remaining: 5a classifier + status sentence, then the category section and classifier-tag explanations |
 | 6. Benchmarking & least privilege | `setcap` flow + actionable permission error done; benchmarking not started |
 | 7. Docs, CI, polish | CI workflow written (3 jobs); README is a working draft |
 

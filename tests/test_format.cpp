@@ -47,6 +47,13 @@ TEST_CASE("IPv4 helpers", "[format][net]") {
     CHECK_FALSE(is_local_ipv4(ip(172, 32, 0, 1)));  // just outside 172.16/12
     CHECK_FALSE(is_local_ipv4(ip(8, 8, 8, 8)));
 
+    // Discovery and broadcast traffic stays on the local network.
+    CHECK(is_local_ipv4(ip(239, 255, 255, 250)));  // SSDP
+    CHECK(is_local_ipv4(ip(224, 0, 0, 251)));      // mDNS
+    CHECK(is_local_ipv4(ip(255, 255, 255, 255)));
+    CHECK(is_local_ipv4(ip(0, 0, 0, 0)));
+    CHECK_FALSE(is_local_ipv4(ip(223, 255, 255, 255)));  // just below multicast
+
     CHECK(ip_protocol_name(6) == "TCP");
     CHECK(ip_protocol_name(17) == "UDP");
     CHECK(ip_protocol_name(47) == "IP proto 47");

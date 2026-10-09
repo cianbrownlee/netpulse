@@ -11,6 +11,9 @@
 #include <ftxui/dom/elements.hpp>
 
 #include "pipeline/pipeline.hpp"
+#include "ui/dashboard_model.hpp"
+#include "ui/focus_model.hpp"
+#include "ui/glossary.hpp"
 #include "ui/labels.hpp"
 #include "util/format.hpp"
 #include "util/net.hpp"
@@ -22,6 +25,7 @@ namespace {
 using namespace ftxui;
 
 constexpr auto kRefreshInterval = std::chrono::milliseconds(250);
+constexpr int kLearnTextLines = 4;
 
 double share_of(std::uint64_t part, std::uint64_t whole) {
     return whole == 0 ? 0.0 : static_cast<double>(part) / static_cast<double>(whole);
@@ -46,6 +50,14 @@ Element right_cell(const std::string& s, int width) {
     return hbox({filler(), text(s)}) | size(WIDTH, EQUAL, width);
 }
 
+// Every selectable row gets a two-column gutter for the ▸ cursor. The focused row is also
+// marked with `focus`, which makes the surrounding yframe scroll to keep it visible.
+Element selectable(Element row, bool focused) {
+    // xflex: the row still spans the full width, so fillers inside it keep working.
+    if (!focused) return hbox({text("  "), std::move(row) | xflex});
+    return hbox({text("▸ ") | color(Color::Cyan) | bold, std::move(row) | bold | xflex}) | focus;
+}
+
 Element header(const Snapshot& s, const Pipeline& p) {
     std::string mode = "live";
     if (p.is_offline()) mode = p.finished() ? "replay finished" : "replaying file";
@@ -55,122 +67,171 @@ Element header(const Snapshot& s, const Pipeline& p) {
         text("  " + p.source() + " · " + mode),
         filler(),
         text("running " + format_duration(uptime) + "   "),
-        text("q to quit ") | dim,
+        text("↑↓ pick a row · ←→ more terms · q quit ") | dim,
     });
 }
 
-Element throughput(const Snapshot& s) {
-    return hbox({
-        text(" Throughput  "),
-        text(format_rate(s.bytes_per_second)) | bold,
-        text("  " + format_count(static_cast<std::uint64_t>(s.packets_per_second)) + " packets/s   "),
-        text(sparkline(s.byte_history)) | color(Color::Cyan),
-        text("  last 60s") | dim,
-    });
+Element throughput_row(const Snapshot& s, const FocusModel& model) {
+    return selectable(hbox({
+                          text("Throughput  "),
+                          text(format_rate(s.bytes_per_second)) | bold,
+                          text("  " + format_count(static_cast<std::uint64_t>(s.packets_per_second)) +
+                               " packets/s   "),
+                          text(sparkline(s.byte_history)) | color(Color::Cyan),
+                          text("  last 60s") | dim,
+                      }),
+                      model.is_focused(kThroughputRowId));
 }
 
-Element protocol_row(const std::string& label, const TrafficCounter& c, const TrafficCounter& total,
-                     Color bar_color) {
-    const double share = share_of(c.bytes, total.bytes);
-    return hbox({
-        cell(" " + label, 13),
-        right_cell(format_percent(share), 6),
-        text("  "),
-        gauge(static_cast<float>(share)) | color(bar_color) | size(WIDTH, EQUAL, 30),
-        text("  "),
-        right_cell(format_bytes(static_cast<double>(c.bytes)), 10),
-        right_cell(format_count(c.packets) + " pkts", 18),
-    });
-}
-
-Element protocols(const Snapshot& s) {
-    return window(text(" Protocols (share of bytes) "),
-                  vbox({
-                      protocol_row("TCP", s.tcp, s.total, Color::Green),
-                      protocol_row("UDP", s.udp, s.total, Color::Blue),
-                      protocol_row("Other IPv4", s.other_ipv4, s.total, Color::Yellow),
-                      protocol_row("Non-IPv4", s.non_ipv4, s.total, Color::Magenta),
-                      protocol_row("Malformed", s.malformed, s.total, Color::Red),
-                  }));
-}
-
-Element top_talkers(const Snapshot& s) {
+Element protocols(const Snapshot& s, const FocusModel& model) {
+    static const Color kBarColors[] = {Color::Green, Color::Blue, Color::Yellow, Color::Magenta,
+                                       Color::Red};
     Elements rows;
-    rows.push_back(hbox({cell(" Device / address", 50), right_cell("Bytes", 10),
+    std::size_t i = 0;
+    for (const auto& p : protocol_rows()) {
+        const TrafficCounter& c = s.*(p.counter);
+        const double share = share_of(c.bytes, s.total.bytes);
+        rows.push_back(selectable(hbox({
+                                      cell(p.label, 12),
+                                      right_cell(format_percent(share), 5),
+                                      text("  "),
+                                      gauge(static_cast<float>(share)) | color(kBarColors[i++ % 5]) |
+                                          size(WIDTH, EQUAL, 30),
+                                      text("  "),
+                                      right_cell(format_bytes(static_cast<double>(c.bytes)), 10),
+                                      right_cell(format_count(c.packets) + " packets", 20),
+                                  }),
+                                  model.is_focused(p.id)));
+    }
+    return window(text(" Protocols (share of bytes) "), vbox(std::move(rows)));
+}
+
+Element top_talkers(const Snapshot& s, const FocusModel& model) {
+    Elements rows;
+    rows.push_back(hbox({text("  "), cell("Device / address", 50), right_cell("Bytes", 10),
                          right_cell("Of all traffic", 16), text("   Where")}) | dim);
     for (const auto& h : s.top_hosts) {
-        rows.push_back(hbox({
-            cell(" " + host_label(h.ip, h.name), 50),
-            right_cell(format_bytes(static_cast<double>(h.bytes)), 10),
-            right_cell(format_percent(share_of(h.bytes, s.total.bytes)), 16),
-            text(h.is_local ? "   local" : "   internet"),
-        }));
+        rows.push_back(selectable(hbox({
+                                      cell(host_label(h.ip, h.name), 50),
+                                      right_cell(format_bytes(static_cast<double>(h.bytes)), 10),
+                                      right_cell(format_percent(share_of(h.bytes, s.total.bytes)), 16),
+                                      text(h.is_local ? "   local" : "   internet"),
+                                  }),
+                                  model.is_focused(host_row_id(h.ip))));
     }
     if (s.top_hosts.empty()) {
-        rows.push_back(text(" waiting for traffic...") | dim);
+        rows.push_back(text("  waiting for traffic...") | dim);
     } else {
-        rows.push_back(text(" Each conversation counts toward both of its ends, so these can add "
+        rows.push_back(text("  Each conversation counts toward both of its ends, so these can add "
                             "up to more than 100%.") | dim);
     }
     return window(text(" Top talkers (bytes sent + received) "), vbox(std::move(rows)));
 }
 
-Element top_flows(const Snapshot& s) {
+Element top_flows(const Snapshot& s, const FocusModel& model) {
     Elements rows;
-    rows.push_back(hbox({cell(" Proto", 7), cell("Conversation", 70), right_cell("Bytes", 10),
-                         right_cell("Packets", 12)}) | dim);
+    rows.push_back(hbox({text("  "), cell("Proto", 6), cell("Conversation", 70),
+                         right_cell("Bytes", 10), right_cell("Packets", 12)}) | dim);
     for (const auto& f : s.top_flows) {
-        rows.push_back(hbox({
-            cell(" " + ip_protocol_name(f.key.protocol), 7),
-            cell(conversation_label(f, "  ⇄  "), 70),
-            right_cell(format_bytes(static_cast<double>(f.stats.bytes)), 10),
-            right_cell(format_count(f.stats.packets), 12),
-        }));
+        rows.push_back(selectable(hbox({
+                                      cell(ip_protocol_name(f.key.protocol), 6),
+                                      cell(conversation_label(f, "  ⇄  "), 70),
+                                      right_cell(format_bytes(static_cast<double>(f.stats.bytes)), 10),
+                                      right_cell(format_count(f.stats.packets), 12),
+                                  }),
+                                  model.is_focused(flow_row_id(f.key))));
     }
-    if (s.top_flows.empty()) rows.push_back(text(" waiting for traffic...") | dim);
+    if (s.top_flows.empty()) rows.push_back(text("  waiting for traffic...") | dim);
     return window(text(" Top flows (conversations) "), vbox(std::move(rows)));
 }
 
-Element footer(const Snapshot& s) {
+// The persistent explanation for whatever is focused. There is no mode to enter or leave:
+// moving the cursor is all it takes.
+Element learn_panel(const FocusModel& model) {
+    const std::string* term = model.focused_term();
+    const GlossaryEntry* entry = term ? find_glossary_entry(*term) : nullptr;
+    if (!entry) {
+        return window(text(" Learn "),
+                      text(" Move the cursor with ↑↓ to see what anything on screen means.") | dim |
+                          size(HEIGHT, EQUAL, kLearnTextLines));
+    }
+
+    std::string title = " Learn: " + std::string(entry->title) + " ";
+    const std::size_t term_count = model.focused_row()->terms.size();
+    if (term_count > 1) {
+        title += "· " + std::to_string(model.term_index() + 1) + " of " +
+                 std::to_string(term_count) + ", ←→ for more ";
+    }
+    return window(text(title) | bold,
+                  hbox({text(" "), paragraph(std::string(entry->text)) | flex, text(" ")}) |
+                      size(HEIGHT, EQUAL, kLearnTextLines));
+}
+
+Element footer(const Snapshot& s, const FocusModel& model) {
     const double missed = s.health.missed_fraction();
-    return hbox({
-        text(" Missed " + format_percent(missed, 2) + " of packets") |
-            color(missed > 0.01 ? Color(Color::Yellow) : Color(Color::Default)),
-        text(" (" + format_count(s.health.queue_drops) + " in NetPulse's queue, " +
-             format_count(s.health.kernel_drops) + " in the kernel)") | dim,
-        filler(),
-        text(format_count(s.active_flows) + " active flows · " + format_count(s.known_hosts) +
-             " addresses seen "),
-    });
+    return selectable(
+        hbox({
+            text("Missed " + format_percent(missed, 2) + " of packets") |
+                color(missed > 0.01 ? Color(Color::Yellow) : Color(Color::Default)),
+            text(" (" + format_count(s.health.queue_drops) + " queue, " +
+                 format_count(s.health.kernel_drops) + " kernel)") | dim,
+            filler(),
+            text(format_count(s.active_flows) + " active flows · " + format_count(s.known_hosts) +
+                 " addresses seen "),
+        }),
+        model.is_focused(kHealthRowId));
+}
+
+// Terminals disagree on Home/End: xterm-style sends ESC[H / ESC[F, while tmux, screen and the
+// Linux console send ESC[1~ / ESC[4~. FTXUI only knows the first form.
+bool is_home(const Event& e) {
+    return e == Event::Home || e == Event::Special("\x1B[1~") || e == Event::Special("\x1B[7~");
+}
+bool is_end(const Event& e) {
+    return e == Event::End || e == Event::Special("\x1B[4~") || e == Event::Special("\x1B[8~");
 }
 
 }  // namespace
 
 void run_dashboard(Pipeline& pipeline) {
     auto screen = ScreenInteractive::Fullscreen();
+    FocusModel model;  // touched only on the UI thread (render and event handling)
 
     auto renderer = Renderer([&] {
         const auto snapshot = pipeline.latest();
         const Snapshot& s = *snapshot;
+        model.update(dashboard_focus_rows(s));
         return vbox({
             header(s, pipeline),
             separator(),
-            throughput(s),
-            protocols(s),
-            top_talkers(s),
-            top_flows(s),
-            filler(),
-            separator(),
-            footer(s),
+            vbox({
+                throughput_row(s, model),
+                protocols(s, model),
+                top_talkers(s, model),
+                top_flows(s, model),
+            }) | yframe | flex,
+            learn_panel(model),
+            footer(s, model),
         });
     });
 
-    auto app = CatchEvent(renderer, [&](const Event& event) {
+    auto app = CatchEvent(renderer, [&](Event event) {  // by value: FTXUI's mouse() is non-const
         if (event == Event::Character('q') || event == Event::Escape) {
             screen.Exit();
             return true;
         }
-        return false;
+        if (event == Event::ArrowUp || event == Event::Character('k')) model.move_row(-1);
+        else if (event == Event::ArrowDown || event == Event::Character('j')) model.move_row(1);
+        else if (event == Event::ArrowLeft || event == Event::Character('h')) model.move_term(-1);
+        else if (event == Event::ArrowRight || event == Event::Character('l')) model.move_term(1);
+        else if (event == Event::PageUp) model.move_row(-10);
+        else if (event == Event::PageDown) model.move_row(10);
+        else if (is_home(event) || event == Event::Character('g')) model.move_row(-1'000'000);
+        else if (is_end(event) || event == Event::Character('G')) model.move_row(1'000'000);
+        else if (event.is_mouse() && event.mouse().button == Mouse::WheelUp) model.move_row(-1);
+        else if (event.is_mouse() && event.mouse().button == Mouse::WheelDown) model.move_row(1);
+        else return false;
+        return true;
     });
 
     // FTXUI redraws on events, so a ticker thread posts one per refresh interval. It also

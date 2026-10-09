@@ -5,8 +5,9 @@ A live network traffic analyzer for Linux, written in C++20. It captures packet 
 mix, top talkers and conversations in a terminal dashboard.
 
 > **Status: early development.** The capture → parse → aggregate pipeline, async hostname
-> resolution and a bare-bones dashboard work. The teaching layer (in-context "Learn" explanations,
-> traffic classifier, status sentence) and benchmarking are next. See [`docs/plan.md`](docs/plan.md)
+> resolution and the dashboard work, including the in-context "Learn" panel: move the cursor
+> with the arrow keys and any term on screen is explained in plain language. The traffic
+> classifier, status sentence and benchmarking are next. See [`docs/plan.md`](docs/plan.md)
 > for the staged plan and progress.
 
 ## Architecture

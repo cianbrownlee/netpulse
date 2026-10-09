@@ -26,7 +26,12 @@ bool is_local_ipv4(std::uint32_t addr) {
            in_prefix(addr, ip(192, 168, 0, 0), 16) ||   // RFC 1918
            in_prefix(addr, ip(127, 0, 0, 0), 8) ||      // loopback
            in_prefix(addr, ip(169, 254, 0, 0), 16) ||   // link-local
-           in_prefix(addr, ip(100, 64, 0, 0), 10);      // carrier-grade NAT
+           in_prefix(addr, ip(100, 64, 0, 0), 10) ||    // carrier-grade NAT
+           in_prefix(addr, ip(0, 0, 0, 0), 8) ||        // "this network" (e.g. DHCP's 0.0.0.0)
+           // Multicast: in practice, local discovery traffic (SSDP, mDNS, IGMP) that never
+           // leaves the network, even though the range isn't private in the RFC 1918 sense.
+           in_prefix(addr, ip(224, 0, 0, 0), 4) ||
+           addr == ip(255, 255, 255, 255);              // limited broadcast
 }
 
 std::string ip_protocol_name(std::uint8_t protocol) {
