@@ -25,8 +25,9 @@ struct CaptureConfig {
 
     // Bytes captured per packet. Large enough for the deepest header stack NetPulse parses
     // (Ethernet 14 + VLAN 4 + IPv4 up to 60 + TCP up to 60 = 138), small enough that packet
-    // *contents* are never captured. The kernel enforces this, so "only reads headers" is a
-    // property of the capture itself, not just a promise about the parser.
+    // *contents* are not captured. For live capture a kernel socket filter enforces this (see
+    // truncate_in_kernel), so "only reads headers" holds for what reaches this process at all,
+    // not just for what the parser looks at.
     int snaplen = 192;
     int kernel_buffer_bytes = 16 * 1024 * 1024;
     // How long libpcap may hold packets before handing over a batch. Batching is far cheaper

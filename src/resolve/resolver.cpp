@@ -3,6 +3,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <pthread.h>
 #include <sys/socket.h>
 
 #include <chrono>
@@ -66,6 +67,7 @@ Resolver::Result Resolver::lookup(std::uint32_t ip) {
 }
 
 void Resolver::worker_loop(std::shared_ptr<State> state) {
+    pthread_setname_np(pthread_self(), "np-resolve");
     // Once closed, abandon whatever is still queued: nobody is left to read the answers.
     while (!state->pending.closed()) {
         auto ip = state->pending.pop_for(std::chrono::milliseconds(200));

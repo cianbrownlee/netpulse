@@ -1,5 +1,7 @@
 #include "pipeline/pipeline.hpp"
 
+#include <pthread.h>
+
 #include <algorithm>
 #include <array>
 #include <span>
@@ -47,6 +49,7 @@ std::shared_ptr<const Snapshot> Pipeline::latest() const {
 }
 
 void Pipeline::capture_loop() {
+    pthread_setname_np(pthread_self(), "np-capture");  // visible in top -H, /proc, debuggers
     capture_->run(queue_);
     // Whatever ended the run (EOF, stop, error), closing the queue lets the aggregator finish
     // what is already queued and then exit.
@@ -61,6 +64,7 @@ Clock::time_point Pipeline::traffic_time() const {
 }
 
 void Pipeline::aggregate_loop() {
+    pthread_setname_np(pthread_self(), "np-aggregate");
     // Live: publish every interval of wall-clock time. Replay: every interval of the *file's*
     // time, so smoothed rates and status checks see the recording as it happened rather than
     // as one instant, and replaying the same file always produces the same results.

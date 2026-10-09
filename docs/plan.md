@@ -14,8 +14,8 @@ ends with something runnable and a check-in before moving on.
 | 3. Async hostname resolution | **Done, verified live** (real reverse-DNS names appear) |
 | 4. Core dashboard | **Done.** Focus model (follows items across re-sorts, unit-tested), Learn panel, scrolling, keyboard + mouse wheel; verified by driving it with real keystrokes |
 | 5. Teaching layer | **Done, pending live check.** Classifier and status line (pure, unit-tested), category section, per-device "now" rates, and "why" explanations for every judgment. Verified end to end on a 70 s replay with one of each traffic pattern; still needs a look on real traffic and threshold tuning |
-| 6. Benchmarking & least privilege | **Done except the live "after" run.** Two measured optimizations (no per-packet allocation, batched hand-off): 2.7 → 8.3 M packets/s, CPU per packet −67%. See [benchmarks.md](benchmarks.md) |
-| 7. Docs, CI, polish | CI workflow written (3 jobs); README is a working draft |
+| 6. Benchmarking & least privilege | **Done.** Three measured changes: no per-packet allocation, batched hand-off, kernel-side truncation. Live TCP capture 47% → 5% of a core; the capture no longer slows the traffic it measures. See [benchmarks.md](benchmarks.md) |
+| 7. Docs, CI, polish | **Mostly done.** Fresh-clone test passes (0 warnings, all tests). Remaining: confirm CI green on GitHub; tune thresholds on real traffic |
 
 ## Corrections folded in before building
 
@@ -35,6 +35,10 @@ ends with something runnable and a check-in before moving on.
    is treated as web traffic.
 7. *(Stage 5)* **`steamcontent.com`** serves game downloads, so it maps to File transfer, not
    Calls/Gaming.
+9. *(Stage 6)* **libpcap's snaplen doesn't truncate in the kernel** on Linux's memory-mapped path: the
+   kernel copied whole packets into the capture ring and libpcap trimmed them afterwards. That made
+   the "payloads are never captured" claim false and cost 46% of a core on TCP bulk. Fixed with a
+   one-instruction kernel socket filter; see benchmarks.md, step 4.
 8. *(Stage 5)* **Status guard rails** the original spec didn't have: a 60 s warm-up (otherwise every
    device is "new" at startup), a minimum traffic level (3x of almost nothing is noise), a 10 s hold
    (no flicker), and the tool-health check moved to first priority (when NetPulse is dropping

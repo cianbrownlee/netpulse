@@ -31,8 +31,11 @@ Decisions worth knowing about:
   buffer where it's invisible. The queue between them is bounded, and when it's full the packet
   is dropped *and counted*. Both kinds of loss (NetPulse's queue, the kernel buffer) are shown on
   screen, never hidden.
-- **Headers only, enforced by the kernel.** A 192-byte snaplen covers the deepest header stack
-  NetPulse parses, so packet payloads are never captured at all.
+- **Headers only, enforced in the kernel.** 192 bytes covers the deepest header stack NetPulse
+  parses. A one-instruction kernel socket filter truncates every packet to that length *before*
+  the kernel copies it to NetPulse. libpcap's snaplen setting alone doesn't do this on Linux: it
+  trims in user space after the kernel has already copied the whole packet, which was found by
+  measurement (see [docs/benchmarks.md](docs/benchmarks.md)).
 - **Least privilege.** The binary gets `CAP_NET_RAW` + `CAP_NET_ADMIN` via `setcap` instead of
   running as root. Missing permission produces the exact command to fix it, not an errno string.
 - **DNS can't stall anything.** Reverse lookups run on worker threads with a session cache;
@@ -40,9 +43,10 @@ Decisions worth knowing about:
 - **Conversations, not packets.** Flow keys are canonical, so both directions of a conversation
   share one entry, with byte counts per direction.
 - **No heap allocation and no per-packet locking on the hot path.** Packets are fixed-size values
-  in a preallocated ring, handed between threads in batches. Measured at 8.3 M packets/s through
-  the full pipeline, 3× the first version, at a third of the CPU per packet; see
-  [docs/benchmarks.md](docs/benchmarks.md) for how, and what was slow before.
+  in a preallocated ring, handed between threads in batches: 8.3 M packets/s through the full
+  pipeline, 3× the first version. Live, capturing ~80 Gbit/s of loopback TCP costs 5% of one
+  core, down from 47%, and NetPulse no longer slows down the traffic it measures (it used to cut
+  it by ~79%). [docs/benchmarks.md](docs/benchmarks.md) tells how each of those was found.
 
 ## How NetPulse makes its judgments (and where they fall short)
 
