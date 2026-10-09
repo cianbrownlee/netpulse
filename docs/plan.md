@@ -17,6 +17,7 @@ ends with something runnable and a check-in before moving on.
 | 6. Benchmarking & least privilege | **Done.** Three measured changes: no per-packet allocation, batched hand-off, kernel-side truncation. Live TCP capture 47% → 5% of a core; the capture no longer slows the traffic it measures. See [benchmarks.md](benchmarks.md) |
 | 7. Docs, CI, polish | **Mostly done.** Fresh-clone test passes (0 warnings, all tests). Remaining: confirm CI green on GitHub; tune thresholds on real traffic |
 | Phase 2: DNS names | **Done, pending live check.** Opt-in `--dns-names`: a BPF filter keeps 512 bytes of DNS/mDNS responses only; a hardened DNS parser (backward-only compression pointers, no control characters) names addresses from the answers devices receive. Verified end to end on the replay fixture (video and call become known-service matches). TLS SNI deliberately deferred (see below) |
+| Phase 2: demo and usability | **Done.** `--demo` runs a simulated household through the real pipeline (no permissions needed; tested end to end), recorded as the README's animated `docs/demo.svg`. Dashboard: Enter drills into a device's conversations, Space pauses, `?` lists keys, a context hint shows the useful key for the current row, and the layout adapts down to 80 columns |
 | Phase 2: IPv6 | **Done.** IPv6 with extension-header chains and fragments, IPv4/IPv6 split in the protocol view, IPv6-aware labels, resolver and classifier; fuzzed under ASan. "Local" now means the capture interface's own subnets too (IPv6 home devices have public addresses), plus `--local` for replays. Still unverified on a real IPv6 network: WSL2's NAT mode has no IPv6 connectivity |
 
 ## Corrections folded in before building
@@ -37,14 +38,14 @@ ends with something runnable and a check-in before moving on.
    is treated as web traffic.
 7. *(Stage 5)* **`steamcontent.com`** serves game downloads, so it maps to File transfer, not
    Calls/Gaming.
-9. *(Stage 6)* **libpcap's snaplen doesn't truncate in the kernel** on Linux's memory-mapped path: the
-   kernel copied whole packets into the capture ring and libpcap trimmed them afterwards. That made
-   the "payloads are never captured" claim false and cost 46% of a core on TCP bulk. Fixed with a
-   one-instruction kernel socket filter; see benchmarks.md, step 4.
 8. *(Stage 5)* **Status guard rails** the original spec didn't have: a 60 s warm-up (otherwise every
    device is "new" at startup), a minimum traffic level (3x of almost nothing is noise), a 10 s hold
    (no flicker), and the tool-health check moved to first priority (when NetPulse is dropping
    packets, its other numbers are less trustworthy).
+9. *(Stage 6)* **libpcap's snaplen doesn't truncate in the kernel** on Linux's memory-mapped path: the
+   kernel copied whole packets into the capture ring and libpcap trimmed them afterwards. That made
+   the "payloads are never captured" claim false and cost 46% of a core on TCP bulk. Fixed with a
+   one-instruction kernel socket filter; see benchmarks.md, step 4.
 
 ## Stages
 
