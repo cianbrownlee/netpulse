@@ -45,7 +45,18 @@ std::vector<std::string> host_terms(const HostRow& host);
 std::vector<std::string> flow_terms(const FlowRow& flow);
 std::vector<std::string> category_terms(const CategoryRow& row);
 
-std::vector<FocusRow> dashboard_focus_rows(const Snapshot& snapshot);
+// The top talker with this address, if it's still one.
+const HostRow* find_top_host(const Snapshot& snapshot, const IpAddress& ip);
+// The top talker a row id refers to (see host_row_id), if the row is one.
+const HostRow* host_for_row(const Snapshot& snapshot, const std::string& row_id);
+
+// The conversations the flows section lists: the overall top flows, or, when a device has been
+// picked (Enter on a top talker), that device's own. Empty if the picked device has dropped
+// out of the top talkers.
+const std::vector<FlowRow>& shown_flows(const Snapshot& snapshot, const std::optional<IpAddress>& device);
+
+std::vector<FocusRow> dashboard_focus_rows(const Snapshot& snapshot,
+                                           const std::optional<IpAddress>& device = std::nullopt);
 
 // What the Learn panel shows for a focused term. Most terms are fixed glossary entries; terms
 // starting with "why:" are explanations of this moment's judgments (the status line, a

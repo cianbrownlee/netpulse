@@ -25,19 +25,6 @@ enum class NameState : std::uint8_t { Unknown, Named, NoName };
 // device on the network received (--dns-names), which is usually the more meaningful of the two.
 enum class NameSource : std::uint8_t { None, ReverseDns, ObservedDns };
 
-struct HostRow {
-    IpAddress ip;
-    std::string name;          // empty unless name_state is Named
-    NameState name_state = NameState::Unknown;
-    NameSource name_source = NameSource::None;
-    bool is_local = false;     // private/LAN address rather than an internet one
-    std::uint64_t packets = 0; // sent + received
-    std::uint64_t bytes = 0;   // sent + received
-    double current_bps = 0;    // smoothed rate over the last few seconds
-    double average_bps = 0;    // average since first seen
-    Clock::duration seen_for{};
-};
-
 struct FlowRow {
     FlowKey key;
     FlowStats stats;
@@ -50,6 +37,22 @@ struct FlowRow {
     Category category = Category::Other;
     ClassMethod method = ClassMethod::None;
     std::string reason;  // why the classifier chose `category`, in plain language
+};
+
+struct HostRow {
+    IpAddress ip;
+    std::string name;          // empty unless name_state is Named
+    NameState name_state = NameState::Unknown;
+    NameSource name_source = NameSource::None;
+    bool is_local = false;     // private/LAN address rather than an internet one
+    std::uint64_t packets = 0; // sent + received
+    std::uint64_t bytes = 0;   // sent + received
+    double current_bps = 0;    // smoothed rate over the last few seconds
+    double average_bps = 0;    // average since first seen
+    Clock::duration seen_for{};
+    // This host's biggest conversations, by bytes. Filled in for top talkers only, for the
+    // dashboard's per-device view.
+    std::vector<FlowRow> flows;
 };
 
 struct CategoryRow {

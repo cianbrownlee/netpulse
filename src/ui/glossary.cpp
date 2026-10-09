@@ -104,10 +104,11 @@ constexpr std::array kGlossary = {
                   "Not on what's inside it, which is encrypted and never read. It's an educated "
                   "guess and can be wrong, which is why it's labeled as one."},
     GlossaryEntry{"known-domain-match", "Known-domain match",
-                  "A label based on who the traffic is going to: the address's name, found through "
-                  "a reverse DNS lookup, matched NetPulse's short built-in list of well-known "
-                  "services (like nflxvideo.net for streaming). More reliable than a pattern "
-                  "guess, but the list is small and many services' addresses have no such name."},
+                  "A label based on who the traffic is going to: the address's name (from a reverse "
+                  "DNS lookup, or from a DNS answer a device received) matched NetPulse's short "
+                  "built-in list of well-known services (like nflxvideo.net for streaming). More "
+                  "reliable than a pattern guess, but the list is small and many services' "
+                  "addresses have no such name."},
 };
 
 }  // namespace

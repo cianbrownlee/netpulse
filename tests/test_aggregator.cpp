@@ -100,6 +100,32 @@ TEST_CASE("snapshot top-N is sorted by bytes and capped", "[aggregate]") {
     CHECK(s.known_hosts == 4);
 }
 
+TEST_CASE("each top talker carries its own biggest conversations", "[aggregate]") {
+    Aggregator::Config config;
+    config.host_flows = 2;
+    Aggregator agg(config);
+    ingest_frame(agg, udp_frame(kLaptop, 1, kServer, 9), 100, t0);
+    ingest_frame(agg, udp_frame(kLaptop, 2, kServer, 9), 300, t0);
+    ingest_frame(agg, udp_frame(kLaptop, 3, kServer, 9), 200, t0);
+    ingest_frame(agg, udp_frame(kTv, 4, kServer, 9), 50, t0);
+
+    const Snapshot s = agg.build_snapshot(t0 + 1s);
+    for (const HostRow& h : s.top_hosts) {
+        INFO(h.ip.to_string());
+        if (h.ip == kLaptop) {
+            REQUIRE(h.flows.size() == 2);  // capped, biggest first
+            CHECK(h.flows[0].stats.bytes == 300);
+            CHECK(h.flows[1].stats.bytes == 200);
+        } else if (h.ip == kTv) {
+            REQUIRE(h.flows.size() == 1);  // only its own
+            CHECK(h.flows[0].stats.bytes == 50);
+        } else {
+            CHECK(h.flows.size() == 2);  // the server is party to all four
+        }
+    }
+    CHECK(s.rate_leaders.front().flows.empty());  // only top talkers carry them
+}
+
 TEST_CASE("idle flows expire, active ones stay", "[aggregate]") {
     Aggregator::Config config;
     config.flow_idle_timeout = 120s;

@@ -85,7 +85,28 @@ std::vector<std::string> category_terms(const CategoryRow& row) {
     return {std::move(why)};
 }
 
-std::vector<FocusRow> dashboard_focus_rows(const Snapshot& s) {
+const HostRow* find_top_host(const Snapshot& s, const IpAddress& ip) {
+    for (const auto& h : s.top_hosts) {
+        if (h.ip == ip) return &h;
+    }
+    return nullptr;
+}
+
+const HostRow* host_for_row(const Snapshot& s, const std::string& row_id) {
+    for (const auto& h : s.top_hosts) {
+        if (row_id == host_row_id(h.ip)) return &h;
+    }
+    return nullptr;
+}
+
+const std::vector<FlowRow>& shown_flows(const Snapshot& s, const std::optional<IpAddress>& device) {
+    static const std::vector<FlowRow> kNone;
+    if (!device) return s.top_flows;
+    const HostRow* host = find_top_host(s, *device);
+    return host ? host->flows : kNone;
+}
+
+std::vector<FocusRow> dashboard_focus_rows(const Snapshot& s, const std::optional<IpAddress>& device) {
     std::vector<FocusRow> rows;
     rows.push_back({kStatusRowId, {std::string(kWhyStatus)}});
     rows.push_back({kThroughputRowId, {"throughput", "packet"}});
@@ -93,7 +114,7 @@ std::vector<FocusRow> dashboard_focus_rows(const Snapshot& s) {
     for (const auto& p : protocol_rows()) rows.push_back({p.id, p.terms});
     for (const auto& v : ip_version_rows()) rows.push_back({v.id, v.terms});
     for (const auto& h : s.top_hosts) rows.push_back({host_row_id(h.ip), host_terms(h)});
-    for (const auto& f : s.top_flows) rows.push_back({flow_row_id(f.key), flow_terms(f)});
+    for (const auto& f : shown_flows(s, device)) rows.push_back({flow_row_id(f.key), flow_terms(f)});
     rows.push_back({kHealthRowId, {"dropped-packet"}});
     return rows;
 }
@@ -116,10 +137,17 @@ std::optional<LearnContent> learn_content(const std::string& term, const Snapsho
     }
     if (t.starts_with(kWhyFlowPrefix)) {
         const auto id = t.substr(kWhyFlowPrefix.size());
-        for (const auto& f : s.top_flows) {
-            if (id == flow_row_id(f.key)) {
-                return LearnContent{std::string("Why: ") + category_label(f.category), f.reason};
+        auto search = [&](const std::vector<FlowRow>& flows) -> std::optional<LearnContent> {
+            for (const auto& f : flows) {
+                if (id == flow_row_id(f.key)) {
+                    return LearnContent{std::string("Why: ") + category_label(f.category), f.reason};
+                }
             }
+            return std::nullopt;
+        };
+        if (auto found = search(s.top_flows)) return found;
+        for (const auto& h : s.top_hosts) {  // the per-device view lists these
+            if (auto found = search(h.flows)) return found;
         }
         return std::nullopt;
     }

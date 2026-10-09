@@ -171,6 +171,9 @@ void Pipeline::publish(Clock::time_point now, Clock::duration uptime) {
         flow.reason = explain(facts, c);
     };
     for (auto& flow : snapshot->top_flows) name_flow(flow);
+    for (auto& host : snapshot->top_hosts) {
+        for (auto& flow : host.flows) name_flow(flow);
+    }
     if (snapshot->busiest_flow) name_flow(*snapshot->busiest_flow);
 
     categorize(*snapshot);

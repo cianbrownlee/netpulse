@@ -153,6 +153,31 @@ FlowRow Aggregator::flow_row(const FlowKey& key, const FlowStats& stats) const {
     return row;
 }
 
+void Aggregator::add_host_flows(std::vector<HostRow>& hosts) const {
+    if (config_.host_flows == 0 || hosts.empty()) return;
+    // One pass over the flows for all the hosts: a few thousand flows times ten hosts, every
+    // snapshot, is cheap next to the packets themselves.
+    using Entry = const std::pair<const FlowKey, FlowStats>*;
+    std::vector<std::vector<Entry>> found(hosts.size());
+    for (const auto& entry : flows_) {
+        for (std::size_t i = 0; i < hosts.size(); ++i) {
+            if (entry.first.ip_a == hosts[i].ip || entry.first.ip_b == hosts[i].ip) {
+                found[i].push_back(&entry);
+            }
+        }
+    }
+    for (std::size_t i = 0; i < hosts.size(); ++i) {
+        auto& entries = found[i];
+        const std::size_t n = std::min(config_.host_flows, entries.size());
+        std::partial_sort(entries.begin(), entries.begin() + static_cast<std::ptrdiff_t>(n), entries.end(),
+                          [](Entry a, Entry b) {
+                              return a->second.bytes != b->second.bytes ? a->second.bytes > b->second.bytes
+                                                                        : key_less(a->first, b->first);
+                          });
+        for (std::size_t j = 0; j < n; ++j) hosts[i].flows.push_back(flow_row(entries[j]->first, entries[j]->second));
+    }
+}
+
 Snapshot Aggregator::build_snapshot(Clock::time_point now) {
     // Expiry walks every flow, so at most once a second rather than on every snapshot.
     if (now - last_expiry_ >= std::chrono::seconds(1)) expire_idle_flows(now);
@@ -181,6 +206,7 @@ Snapshot Aggregator::build_snapshot(Clock::time_point now) {
          })) {
         s.top_hosts.push_back(host_row(e->first, e->second, now));
     }
+    add_host_flows(s.top_hosts);
     for (const auto* e : top_entries(hosts_, config_.rate_leaders, [](auto* a, auto* b) {
              return a->second.current_bps != b->second.current_bps
                         ? a->second.current_bps > b->second.current_bps

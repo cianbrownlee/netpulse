@@ -40,6 +40,8 @@ public:
         // enough that one burst doesn't look like a trend, short enough to feel live.
         std::chrono::seconds rate_time_constant{3};
         std::size_t rate_leaders = 5;
+        // Conversations listed for each top talker (HostRow::flows).
+        std::size_t host_flows = 10;
         // Networks that count as "your side" in addition to private address ranges.
         LocalNetworks local_networks;
         // Read the answers in DNS/mDNS responses to learn names for addresses (--dns-names).
@@ -70,6 +72,7 @@ private:
     void update_rates(Clock::time_point now);
     HostRow host_row(const IpAddress& ip, const HostStats& h, Clock::time_point now) const;
     FlowRow flow_row(const FlowKey& key, const FlowStats& stats) const;
+    void add_host_flows(std::vector<HostRow>& hosts) const;
 
     Config config_;
     TrafficCounter total_, tcp_, udp_, other_ip_, non_ip_, malformed_;

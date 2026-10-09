@@ -131,7 +131,8 @@ if(NETPULSE_BUILD_TESTS)
     tests/test_local_networks.cpp
     tests/test_dns.cpp
     tests/test_capture_filter.cpp
-    tests/test_demo.cpp)
+    tests/test_demo.cpp
+    tests/test_labels.cpp)
   target_link_libraries(netpulse_tests PRIVATE netpulse_view netpulse_capture netpulse_demo
     Catch2::Catch2WithMain)
   target_include_directories(netpulse_tests PRIVATE tests)

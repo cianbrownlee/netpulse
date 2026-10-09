@@ -126,6 +126,28 @@ TEST_CASE("row terms match what the row actually shows", "[dashboard]") {
     CHECK(category_terms(s.categories[2]).size() == 1);
 }
 
+TEST_CASE("picking a top talker lists its own conversations", "[dashboard]") {
+    Snapshot s = representative_snapshot();
+    FlowRow own = flow(6, 52000, 22, Category::Other);
+    own.reason = "only this device's";
+    s.top_hosts[1].flows = {own};
+    const IpAddress device = s.top_hosts[1].ip;
+
+    CHECK(&shown_flows(s, std::nullopt) == &s.top_flows);
+    REQUIRE(shown_flows(s, device).size() == 1);
+    CHECK(host_for_row(s, host_row_id(device)) == &s.top_hosts[1]);
+    CHECK(host_for_row(s, kStatusRowId) == nullptr);
+
+    // The focus rows follow what's shown, and the flow's explanation is found there too.
+    const auto rows = dashboard_focus_rows(s, device);
+    CHECK(rows[rows.size() - 2].id == flow_row_id(own.key));
+    CHECK(learn_content("why:flow:" + flow_row_id(own.key), s)->text == "only this device's");
+
+    // A device that has dropped out of the top talkers has nothing to list.
+    CHECK(shown_flows(s, ip(10, 9, 9, 9)).empty());
+    CHECK(dashboard_focus_rows(s, ip(10, 9, 9, 9)).size() == rows.size() - 1);
+}
+
 TEST_CASE("'why' terms explain this moment's judgments from the snapshot", "[dashboard]") {
     Snapshot s = representative_snapshot();
 
