@@ -98,3 +98,10 @@ TEST_CASE("protocol names", "[net]") {
     CHECK(ip_protocol_name(47) == "GRE");
     CHECK(ip_protocol_name(99) == "IP proto 99");
 }
+
+TEST_CASE("network-sourced text is made terminal-safe", "[format]") {
+    CHECK(printable("www.example.com") == "www.example.com");
+    CHECK(printable("evil\x1b[2J.com") == "evil?[2J.com");
+    CHECK(printable(std::string("a\0b", 3)) == "a?b");
+    CHECK(printable("caf\xc3\xa9") == "caf??");
+}

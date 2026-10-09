@@ -349,3 +349,20 @@ TEST_CASE("random garbage never crashes the parser", "[parse][malformed]") {
     }
     SUCCEED();
 }
+
+TEST_CASE("the UDP payload view covers exactly the datagram's captured payload", "[parse]") {
+    const auto info = parse(udp_frame(kLaptop, 50000, ip(8, 8, 8, 8), 53, 30));
+    CHECK(info.udp_payload.size() == 30);
+
+    // Ethernet padding after a short datagram is not payload.
+    Bytes padded = udp_frame(kLaptop, 1000, kServer, 2000, 4);
+    padded.resize(60, 0);
+    CHECK(parse(padded).udp_payload.size() == 4);
+
+    // A capture cut short yields what was captured.
+    Bytes cut = udp_frame(kLaptop, 1000, kServer, 2000, 100);
+    cut.resize(cut.size() - 60);
+    CHECK(parse(cut).udp_payload.size() == 40);
+
+    CHECK(parse(tcp_frame(kLaptop, 1, kServer, 443, 100)).udp_payload.empty());
+}

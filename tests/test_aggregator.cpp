@@ -220,3 +220,41 @@ TEST_CASE("local networks mark hosts and flow ends as local", "[aggregate][local
     CHECK(f.local_b == (f.key.ip_b == laptop6));
     CHECK(s.local_networks == "2601:600:8a00:1234::/64");
 }
+
+TEST_CASE("DNS answers name addresses only when --dns-names is on", "[aggregate][dns]") {
+    DnsMessage m;
+    m.question(DnsMessage::name("www.youtube.com"))
+        .answer(DnsMessage::pointer(12), 1, DnsMessage::a(ip(142, 250, 72, 14)));
+    const Bytes response = udp_frame_with(ip(8, 8, 8, 8), 53, kLaptop, 50000, m.bytes);
+
+    Aggregator off;
+    ingest_frame(off, response, static_cast<std::uint32_t>(response.size()), t0);
+    CHECK(off.observed_names().size() == 0);
+
+    Aggregator::Config config;
+    config.observe_dns = true;
+    Aggregator on(config);
+    ingest_frame(on, response, static_cast<std::uint32_t>(response.size()), t0);
+    REQUIRE(on.observed_names().find(ip(142, 250, 72, 14)) != nullptr);
+    CHECK(*on.observed_names().find(ip(142, 250, 72, 14)) == "www.youtube.com");
+
+    // A query to port 53 isn't an answer, and other UDP never is.
+    Aggregator::Config c2;
+    c2.observe_dns = true;
+    Aggregator quiet(c2);
+    ingest_frame(quiet, udp_frame_with(kLaptop, 50000, ip(8, 8, 8, 8), 53, m.bytes), 100, t0);
+    ingest_frame(quiet, udp_frame_with(kServer, 443, kLaptop, 50000, m.bytes), 100, t0);
+    CHECK(quiet.observed_names().size() == 0);
+}
+
+TEST_CASE("observed names are bounded, oldest forgotten first", "[aggregate][dns]") {
+    ObservedNames names(2);
+    names.record({"a.example", {ip(1, 0, 0, 1)}});
+    names.record({"b.example", {ip(1, 0, 0, 2)}});
+    names.record({"a2.example", {ip(1, 0, 0, 1)}});  // renaming doesn't change its age
+    names.record({"c.example", {ip(1, 0, 0, 3)}});
+    CHECK(names.size() == 2);
+    CHECK(names.find(ip(1, 0, 0, 1)) == nullptr);  // the oldest learned
+    CHECK(*names.find(ip(1, 0, 0, 2)) == "b.example");
+    CHECK(*names.find(ip(1, 0, 0, 3)) == "c.example");
+}

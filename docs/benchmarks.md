@@ -194,6 +194,17 @@ Final results:
 | TCP bulk | 78.9 Gbit/s | ~244k | 0 | 5% of a core |
 | UDP flood, 64-byte packets | 188 Mbit/s | ~306k | 0 | 6% of a core |
 
+## Later changes, re-measured
+
+Each later change that touched the hot path was checked against the same harness
+(`netpulse_bench`, max throughput, three runs):
+
+| Change | Before | After | Why |
+|---|---|---|---|
+| Addresses became a 16-byte IPv4/IPv6 type (first attempt) | 8.3 M/s | **5.7 M/s** | The old host-map hash was the identity on a 32-bit key; the new one loaded bytes one at a time and mixed several times, three hashes per packet |
+| ...hash rewritten: two 8-byte loads, multiply-xor fold, one final mix | 5.7 M/s | 8.2 M/s | Regression recovered to within ~3% |
+| Packet copies move only the bytes in use (to make room for 512-byte DNS answers without slowing everything else down) | 8.2 M/s | **9.6 M/s** | A typical 60-byte header no longer drags a 256-byte array copy with it |
+
 ## What's not done
 
 The queue is still a plain mutex + condition variable. A lock-free queue would be the next step

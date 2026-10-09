@@ -24,6 +24,7 @@ struct Options {
     std::string read_file;
     bool plain = false;
     bool resolve = true;
+    bool dns_names = false;
     bool list_interfaces = false;
     std::vector<IpPrefix> local_networks;
     std::optional<int> duration_seconds;
@@ -41,6 +42,8 @@ void print_usage(std::ostream& out) {
            "                         (automatic when output is not a terminal)\n"
            "  -d, --duration SECS    stop after SECS seconds (live --plain mode)\n"
            "      --no-resolve       don't look up hostnames (no reverse-DNS queries)\n"
+           "      --dns-names        also learn names from the DNS answers your devices receive\n"
+           "                         (opt-in: reads the contents of DNS responses, and only those)\n"
            "      --local PREFIX     treat PREFIX (e.g. 2001:db8:1::/64) as your own network;\n"
            "                         repeatable. Live capture adds the interface's own subnets\n"
            "                         automatically, so this matters mostly for replays\n"
@@ -85,6 +88,8 @@ std::optional<Options> parse_args(int argc, char** argv) {
             opts.plain = true;
         } else if (arg == "--no-resolve") {
             opts.resolve = false;
+        } else if (arg == "--dns-names") {
+            opts.dns_names = true;
         } else if (arg == "--local") {
             auto v = value();
             if (!v) return std::nullopt;
@@ -161,6 +166,7 @@ int main(int argc, char** argv) {
     config.capture.pcap_file = opts->read_file;
     config.resolve_names = opts->resolve;
     config.local_networks = opts->local_networks;
+    config.dns_names = opts->dns_names;
 
     std::optional<Pipeline> pipeline;
     try {

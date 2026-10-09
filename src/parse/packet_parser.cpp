@@ -180,6 +180,9 @@ void parse_transport(PacketInfo& info, std::span<const std::uint8_t> transport) 
         info.kind = PacketKind::Udp;
         info.src_port = udp->src_port;
         info.dst_port = udp->dst_port;
+        const std::size_t claimed = std::size_t{udp->length} - kUdpHeaderLength;
+        info.udp_payload = transport.subspan(
+            kUdpHeaderLength, std::min(claimed, transport.size() - kUdpHeaderLength));
     }
 }
 

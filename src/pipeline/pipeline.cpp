@@ -24,6 +24,15 @@ LocalNetworks gather_local_networks(const PacketSource& source, const Pipeline::
     return networks;
 }
 
+// Applies the settings that span components (so far: --dns-names).
+Pipeline::Config prepare(Pipeline::Config config) {
+    if (config.dns_names) {
+        config.capture.dns_snaplen = 512;
+        config.aggregator.observe_dns = true;
+    }
+    return config;
+}
+
 Aggregator::Config with_networks(Aggregator::Config config, const LocalNetworks& networks) {
     config.local_networks = networks;
     return config;
@@ -32,10 +41,10 @@ Aggregator::Config with_networks(Aggregator::Config config, const LocalNetworks&
 }  // namespace
 
 Pipeline::Pipeline(Config config)
-    : Pipeline(config, PacketCapture::open(config.capture)) {}
+    : Pipeline(config, PacketCapture::open(prepare(config).capture)) {}
 
 Pipeline::Pipeline(Config config, std::unique_ptr<PacketSource> source)
-    : config_(std::move(config)),
+    : config_(prepare(std::move(config))),
       capture_(std::move(source)),
       local_networks_(gather_local_networks(*capture_, config_)),
       queue_(config_.queue_capacity),
@@ -140,9 +149,10 @@ void Pipeline::publish(Clock::time_point now, Clock::duration uptime) {
     // lookup per address per session.)
     for (auto* hosts : {&snapshot->top_hosts, &snapshot->rate_leaders}) {
         for (auto& host : *hosts) {
-            auto [state, name] = lookup_name(host.ip);
+            auto [state, name, source] = lookup_name(host.ip);
             host.name_state = state;
             host.name = std::move(name);
+            host.name_source = source;
         }
     }
     auto name_flow = [&](FlowRow& flow) {
@@ -165,17 +175,25 @@ void Pipeline::publish(Clock::time_point now, Clock::duration uptime) {
 
     categorize(*snapshot);
     snapshot->status = status_.update(*snapshot);
+    snapshot->dns_names = config_.dns_names;
 
     std::lock_guard lock(snapshot_mutex_);
     latest_ = std::move(snapshot);
 }
 
 Pipeline::NameLookup Pipeline::lookup_name(const IpAddress& ip) {
+    // A name a device here actually asked for beats whatever the address's reverse DNS says.
+    if (const std::string* observed = aggregator_.observed_names().find(ip)) {
+        return {NameState::Named, *observed, NameSource::ObservedDns};
+    }
     if (!resolver_) return {};
     auto result = resolver_->lookup(ip);
     switch (result.status) {
-        case Resolver::Status::Resolved: return {NameState::Named, std::move(result.name)};
-        case Resolver::Status::NoName: return {NameState::NoName, {}};
+        case Resolver::Status::Resolved:
+            // Reverse-DNS names come from whoever controls that address's DNS, so they're
+            // made terminal-safe before display (DNS-answer names are checked while parsing).
+            return {NameState::Named, printable(std::move(result.name)), NameSource::ReverseDns};
+        case Resolver::Status::NoName: return {NameState::NoName, {}, NameSource::None};
         case Resolver::Status::Pending: break;
     }
     return {};

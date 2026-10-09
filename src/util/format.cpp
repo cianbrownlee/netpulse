@@ -50,6 +50,14 @@ std::string format_duration(std::chrono::seconds d) {
     return buf;
 }
 
+std::string printable(std::string text) {
+    for (char& c : text) {
+        const auto byte = static_cast<unsigned char>(c);
+        if (byte < 0x20 || byte >= 0x7F) c = '?';
+    }
+    return text;
+}
+
 std::string format_percent(double fraction, int decimals) {
     char buf[32];
     std::snprintf(buf, sizeof buf, "%.*f%%", decimals, fraction * 100.0);

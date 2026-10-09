@@ -14,4 +14,9 @@ std::string format_count(std::uint64_t n);           // "1,234,567"
 std::string format_duration(std::chrono::seconds d); // "45 s", "14 min", "2 h 05 min"
 std::string format_percent(double fraction, int decimals = 0);  // 0.0123 -> "1%" / "1.23%"
 
+// Replaces control and non-ASCII bytes with '?'. For text that came from the network (names
+// from DNS) before it reaches the terminal: an escape sequence hidden in a hostname would
+// otherwise be interpreted by the user's terminal.
+std::string printable(std::string text);
+
 }  // namespace netpulse

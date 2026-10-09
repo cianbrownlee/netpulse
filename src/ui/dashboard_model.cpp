@@ -65,9 +65,11 @@ const char* protocol_term(std::uint8_t ip_protocol) {
 }
 
 std::vector<std::string> host_terms(const HostRow& host) {
-    // A shown name came from reverse DNS, so DNS is one of the things worth explaining.
+    // A shown name came from DNS one way or the other, so where it came from is worth
+    // explaining too.
     if (host.name.empty()) return {"ip-address", "throughput", "local-address"};
-    return {"ip-address", "dns", "throughput", "local-address"};
+    const char* name_term = host.name_source == NameSource::ObservedDns ? "observed-dns" : "dns";
+    return {"ip-address", name_term, "throughput", "local-address"};
 }
 
 std::vector<std::string> flow_terms(const FlowRow& flow) {

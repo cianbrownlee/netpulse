@@ -6,6 +6,7 @@
 #include <unordered_map>
 
 #include "aggregate/flow.hpp"
+#include "aggregate/observed_names.hpp"
 #include "aggregate/snapshot.hpp"
 #include "aggregate/throughput_window.hpp"
 #include "parse/packet_parser.hpp"
@@ -41,6 +42,8 @@ public:
         std::size_t rate_leaders = 5;
         // Networks that count as "your side" in addition to private address ranges.
         LocalNetworks local_networks;
+        // Read the answers in DNS/mDNS responses to learn names for addresses (--dns-names).
+        bool observe_dns = false;
     };
 
     Aggregator();
@@ -59,6 +62,7 @@ public:
     const std::unordered_map<FlowKey, FlowStats>& flows() const { return flows_; }
     const std::unordered_map<IpAddress, HostStats>& hosts() const { return hosts_; }
     const TrafficCounter& total() const { return total_; }
+    const ObservedNames& observed_names() const { return observed_names_; }
 
 private:
     TrafficCounter& counter_for(PacketKind kind);
@@ -74,6 +78,7 @@ private:
     std::unordered_map<FlowKey, FlowStats> flows_;
     std::unordered_map<IpAddress, HostStats> hosts_;
     Clock::time_point last_expiry_{};
+    ObservedNames observed_names_;
 
     bool rates_started_ = false;
     Clock::time_point last_tick_{};

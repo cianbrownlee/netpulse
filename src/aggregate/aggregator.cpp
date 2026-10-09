@@ -72,6 +72,10 @@ void Aggregator::ingest(const PacketInfo& info, std::uint32_t wire_length, Clock
     throughput_.add(t, wire_length);
 
     if (!info.is_ip()) return;
+    if (config_.observe_dns && info.kind == PacketKind::Udp &&
+        (info.src_port == 53 || info.src_port == 5353)) {
+        for (const auto& answer : parse_dns_response(info.udp_payload)) observed_names_.record(answer);
+    }
     TrafficCounter& version_counter = info.ip_version == 6 ? ipv6_ : ipv4_;
     version_counter.packets += 1;
     version_counter.bytes += wire_length;

@@ -118,6 +118,10 @@ struct PacketInfo {
     std::uint16_t src_port = 0;
     std::uint16_t dst_port = 0;
     std::uint8_t tcp_flags = 0;
+    // UDP only: the captured part of the datagram's payload, as a view into the frame (valid
+    // only as long as the frame is). Normally just a few bytes past the headers; the one thing
+    // that reads it is the opt-in DNS-answer parser.
+    std::span<const std::uint8_t> udp_payload;
 
     bool is_ip() const {
         return kind == PacketKind::Tcp || kind == PacketKind::Udp || kind == PacketKind::OtherIp;

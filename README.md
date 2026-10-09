@@ -32,10 +32,17 @@ Decisions worth knowing about:
   is dropped *and counted*. Both kinds of loss (NetPulse's queue, the kernel buffer) are shown on
   screen, never hidden.
 - **Headers only, enforced in the kernel.** 192 bytes covers the deepest header stack NetPulse
-  parses. A one-instruction kernel socket filter truncates every packet to that length *before*
-  the kernel copies it to NetPulse. libpcap's snaplen setting alone doesn't do this on Linux: it
-  trims in user space after the kernel has already copied the whole packet, which was found by
+  parses. A kernel socket filter truncates every packet to that length *before* the kernel
+  copies it to NetPulse. libpcap's snaplen setting alone doesn't do this on Linux: it trims in
+  user space after the kernel has already copied the whole packet, which was found by
   measurement (see [docs/benchmarks.md](docs/benchmarks.md)).
+- **One opt-in exception: DNS answers.** With `--dns-names`, the filter keeps up to 512 bytes of
+  DNS and mDNS *responses* (and nothing more of anything else), so NetPulse can read which names
+  your devices looked up: "142.250.72.14 is www.youtube.com". That names addresses reverse DNS
+  can't, and turns many pattern guesses into known-service matches. It's off by default because
+  it means reading the contents of one kind of packet. Names from the network are treated as
+  hostile input: compression pointers may only point backwards (no loops), and anything with
+  control characters is rejected, so a DNS answer can't inject escape codes into your terminal.
 - **Least privilege.** The binary gets `CAP_NET_RAW` + `CAP_NET_ADMIN` via `setcap` instead of
   running as root. Missing permission produces the exact command to fix it, not an errno string.
 - **DNS can't stall anything.** Reverse lookups run on worker threads with a session cache;
@@ -43,8 +50,8 @@ Decisions worth knowing about:
 - **Conversations, not packets.** Flow keys are canonical, so both directions of a conversation
   share one entry, with byte counts per direction.
 - **No heap allocation and no per-packet locking on the hot path.** Packets are fixed-size values
-  in a preallocated ring, handed between threads in batches: 8.3 M packets/s through the full
-  pipeline, 3× the first version. Live, capturing ~80 Gbit/s of loopback TCP costs 5% of one
+  in a preallocated ring, handed between threads in batches: ~9.5 M packets/s through the full
+  pipeline, 3.5× the first version. Live, capturing ~80 Gbit/s of loopback TCP costs 5% of one
   core, down from 47%, and NetPulse no longer slows down the traffic it measures (it used to cut
   it by ~79%). [docs/benchmarks.md](docs/benchmarks.md) tells how each of those was found.
 

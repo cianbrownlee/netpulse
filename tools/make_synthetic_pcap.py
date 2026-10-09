@@ -21,7 +21,8 @@ traffic_mix.pcap: classifier and status coverage (~70 s), one of each traffic pa
   streaming      HTTPS, ~1.5 MB bursts every 5 s, download only        (t = 0..56 s)
   call           UDP 3478, ~200-byte packets both ways, 10/s each way    (t = 2..62 s)
   browsing       8 short HTTPS exchanges of ~50 kB with different hosts
-  background     DNS lookups to the router before each page
+  background     DNS lookups to the router before each page, with real answers naming the
+                 hosts (and the video, call and download servers), for --dns-names
   other          an interactive SSH session, small packets every 2 s
   file transfer  continuous ~10 MB/s HTTPS download                     (t = 60..70 s)
 The download at the end is far above the laptop's own average, so the status line should
@@ -193,6 +194,17 @@ def build_frames():
     return frames
 
 
+def dns_response(name, addresses):
+    """A DNS answer: one question for `name`, one A record per IPv4 address (as tuples)."""
+    labels = b"".join(bytes([len(part)]) + part.encode() for part in name.split(".")) + b"\0"
+    message = struct.pack("!HHHHHH", 0x4242, 0x8180, 1, len(addresses), 0, 0)
+    message += labels + struct.pack("!HH", 1, 1)
+    for address in addresses:
+        # Owner name as a compression pointer to the question (offset 12).
+        message += struct.pack("!HHHIH", 0xC00C, 1, 1, 300, 4) + bytes(address)
+    return message
+
+
 LAN_ROUTER = (192, 168, 1, 1)
 PHONE = (192, 168, 1, 40)
 VIDEO = (198, 51, 100, 20)
@@ -212,11 +224,23 @@ def segment(src, sport, dst, dport, proto, payload_len, flags=ACK):
 
 
 def build_traffic_mix():
-    records = []  # (seconds from start, header bytes, wire length)
+    records = []  # (seconds from start, frame bytes, wire length[, bytes to keep])
 
     def add(t, *args, **kwargs):
         headers, wire = segment(*args, **kwargs)
         records.append((t, headers, wire))
+
+    def dns_answer(t, client, client_port, name, addresses):
+        message = dns_response(name, addresses)
+        frame = (ethernet(0x0800) + ipv4(LAN_ROUTER, client, 17, 8 + len(message))
+                 + udp(53, client_port, len(message)) + message)
+        records.append((t, frame, len(frame), 512))
+
+    # The names behind the conversations below, as the devices' DNS lookups were answered.
+    # With --dns-names these turn the video and the call into known-service matches.
+    dns_answer(0.05, LAPTOP, 50000, "rr4---sn-ab5l6nzr.googlevideo.com", [VIDEO])
+    dns_answer(1.95, PHONE, 50001, "turn.zoom.us", [CALL_RELAY])
+    dns_answer(59.95, LAPTOP, 50000, "downloads.example.org", [MIRROR])
 
     # Streaming: a 25-segment burst (~1.5 MB) every 5 s, an ACK every 5 segments.
     for burst in range(12):
@@ -237,7 +261,7 @@ def build_traffic_mix():
     for n, start in enumerate([3, 8, 15, 22, 30, 37, 44, 51]):
         host, port = (151, 101, 10 + n, 5), 53000 + n
         add(start, LAPTOP, 50000, LAN_ROUTER, 53, 17, 30)
-        add(start + 0.02, LAN_ROUTER, 53, LAPTOP, 50000, 17, 60)
+        dns_answer(start + 0.02, LAPTOP, 50000, f"www.site{n}.example", [host])
         add(start + 0.05, LAPTOP, port, host, 443, 6, 0, flags=SYN)
         add(start + 0.07, host, 443, LAPTOP, port, 6, 0, flags=SYN | ACK)
         add(start + 0.08, LAPTOP, port, host, 443, 6, 0)
@@ -266,14 +290,17 @@ def build_traffic_mix():
 
 
 def write_pcap(path, records):
-    """records: (seconds from start, frame bytes from Ethernet onward, wire length)."""
+    """records: (seconds from start, frame bytes from Ethernet onward, wire length[, bytes to
+    keep, default SNAPLEN])."""
     with path.open("wb") as f:
         # Classic pcap global header: magic, v2.4, UTC, sigfigs 0, snaplen, LINKTYPE_ETHERNET
-        f.write(struct.pack("<IHHiIII", 0xA1B2C3D4, 2, 4, 0, 0, SNAPLEN, 1))
+        f.write(struct.pack("<IHHiIII", 0xA1B2C3D4, 2, 4, 0, 0, 512, 1))
         start_us = 1_700_000_000 * 1_000_000
-        for t, frame, wire in records:
+        for record in records:
+            t, frame, wire = record[:3]
+            keep = record[3] if len(record) > 3 else SNAPLEN
             ts_us = start_us + round(t * 1_000_000)
-            captured = frame[:SNAPLEN]
+            captured = frame[:keep]
             f.write(struct.pack("<IIII", ts_us // 1_000_000, ts_us % 1_000_000,
                                 len(captured), wire))
             f.write(captured)
@@ -307,9 +334,10 @@ def main():
     traffic_mix = out_dir / "traffic_mix.pcap"
     write_pcap(traffic_mix, mix)
     print(f"wrote {traffic_mix} ({traffic_mix.stat().st_size} bytes on disk)")
-    print(f"  records={len(mix)} wire_bytes={sum(w for _, _, w in mix)}")
+    print(f"  records={len(mix)} wire_bytes={sum(record[2] for record in mix)}")
     print("  expect: categories: streaming=1 browsing=8 calls-gaming=1 file-transfer=1 other=1")
     print("  expect: status: device-above-usual")
+    print("  expect with --dns-names: streaming and calls/gaming as [known-domain match]")
 
 
 if __name__ == "__main__":

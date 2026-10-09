@@ -14,6 +14,8 @@
 #include <filesystem>
 #include <utility>
 
+#include "capture/capture_filter.hpp"
+
 namespace netpulse {
 
 namespace {
@@ -55,12 +57,15 @@ void require_ethernet(pcap_t* handle, const std::string& source) {
 // one-instruction filter, "return snaplen", makes the kernel truncate *before* copying. That
 // enforces "headers only" in the kernel rather than just in our code, and stops large packets
 // from filling the ring (and waking the capture thread) every few packets.
-bool truncate_in_kernel(pcap_t* handle, int snaplen) {
-    sock_filter code[] = {
-        {static_cast<std::uint16_t>(BPF_RET | BPF_K), 0, 0, static_cast<std::uint32_t>(snaplen)}};
+//
+// With --dns-names the program keeps more of DNS responses, and only of those (see
+// build_capture_filter).
+bool truncate_in_kernel(pcap_t* handle, int snaplen, int dns_snaplen) {
+    std::vector<sock_filter> code = build_capture_filter(static_cast<unsigned>(snaplen),
+                                                         static_cast<unsigned>(dns_snaplen));
     sock_fprog program{};
-    program.len = 1;
-    program.filter = code;
+    program.len = static_cast<unsigned short>(code.size());
+    program.filter = code.data();
     return setsockopt(pcap_fileno(handle), SOL_SOCKET, SO_ATTACH_FILTER, &program,
                       sizeof program) == 0;
 }
@@ -127,7 +132,9 @@ std::unique_ptr<PacketCapture> PacketCapture::open(const CaptureConfig& config) 
     pcap_t* handle = pcap_create(iface.c_str(), errbuf);
     if (!handle) throw CaptureError("Could not open interface '" + iface + "': " + errbuf);
 
-    pcap_set_snaplen(handle, config.snaplen);
+    // libpcap also trims to its snaplen in user space, so it gets the larger of the two; the
+    // kernel filter (below) is what holds every non-DNS packet to `snaplen`.
+    pcap_set_snaplen(handle, std::max(config.snaplen, config.dns_snaplen));
     // Not promiscuous: only traffic this machine sends or receives. Seeing other devices'
     // traffic is not needed for the MVP and is not something a tool should do by default.
     pcap_set_promisc(handle, 0);
@@ -139,7 +146,7 @@ std::unique_ptr<PacketCapture> PacketCapture::open(const CaptureConfig& config) 
     if (status < 0) throw_activate_error(handle, status, iface);
 
     require_ethernet(handle, iface);
-    if (!truncate_in_kernel(handle, config.snaplen)) {
+    if (!truncate_in_kernel(handle, config.snaplen, config.dns_snaplen)) {
         std::fprintf(stderr,
                      "netpulse: note: couldn't set kernel-side truncation (%s); full packets will "
                      "reach the capture buffer and be trimmed afterwards. Capture still works.\n",

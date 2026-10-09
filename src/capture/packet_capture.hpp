@@ -30,6 +30,9 @@ struct CaptureConfig {
     // truncate_in_kernel), so "only reads headers" holds for what reaches this process at all,
     // not just for what the parser looks at.
     int snaplen = 192;
+    // If non-zero, DNS and mDNS responses are kept up to this many bytes instead, so their
+    // answers can be read (--dns-names). Nothing else is affected. 0 = off.
+    int dns_snaplen = 0;
     int kernel_buffer_bytes = 16 * 1024 * 1024;
     // How long libpcap may hold packets before handing over a batch. Batching is far cheaper
     // than waking up per packet, and 100 ms is invisible on a 250 ms dashboard refresh.

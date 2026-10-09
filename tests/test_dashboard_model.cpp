@@ -44,7 +44,11 @@ Snapshot representative_snapshot() {
     unnamed.is_local = true;
     HostRow v6;
     v6.ip = netpulse::test::ip6("2001:db8:1::14");
-    s.top_hosts = {named, unnamed, v6};
+    HostRow observed;
+    observed.ip = ip(142, 250, 72, 14);
+    observed.name = "www.youtube.com";
+    observed.name_source = NameSource::ObservedDns;
+    s.top_hosts = {named, unnamed, v6, observed};
     s.top_flows = {flow(6, 51000, 443, Category::Streaming), flow(17, 50000, 53, Category::Background),
                    flow(1, 0, 0, Category::Background), flow(47, 0, 0, Category::Other)};
     s.categories = {category(Category::Streaming, ClassMethod::FlowShape),
@@ -107,6 +111,7 @@ TEST_CASE("row terms match what the row actually shows", "[dashboard]") {
           std::vector<std::string>{"ip-address", "dns", "throughput", "local-address"});
     CHECK(host_terms(s.top_hosts[1]) ==
           std::vector<std::string>{"ip-address", "throughput", "local-address"});
+    CHECK(host_terms(s.top_hosts[3]).at(1) == "observed-dns");  // named from a DNS answer
 
     const std::string why0 = "why:flow:" + flow_row_id(s.top_flows[0].key);
     CHECK(flow_terms(s.top_flows[0]) == std::vector<std::string>{"flow", "tcp", "port", why0});

@@ -91,6 +91,13 @@ constexpr std::array kGlossary = {
                   "devices usually get public addresses, so this is how they're recognized), or one "
                   "devices use to announce things to everyone nearby (multicast and broadcast). "
                   "\"Internet\" means an address out on the wider internet."},
+    GlossaryEntry{"observed-dns", "Name from a DNS answer",
+                  "This is the name a device on your network asked for when it looked this "
+                  "address up (like www.youtube.com), read from the DNS answer as it went by. "
+                  "That's usually more meaningful than a reverse lookup, which for big services "
+                  "often returns nothing or a generic server name. Reading DNS answers is opt-in "
+                  "(--dns-names), because it means reading the contents of one kind of packet: "
+                  "the names your devices look up."},
     GlossaryEntry{"flow-shape-heuristic", "Flow-shape heuristic",
                   "A label based on the shape of a conversation: how long it lasts, how much data "
                   "moves and in which direction, and whether it flows continuously or in bursts. "

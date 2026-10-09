@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <initializer_list>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "util/ip_address.hpp"
@@ -170,12 +171,89 @@ inline Bytes udp6_frame(const IpAddress& src, std::uint16_t sport, const IpAddre
                    udp(sport, dport, payload_length), payload(payload_length)});
 }
 
+inline Bytes udp_frame_with(const IpAddress& src, std::uint16_t sport, const IpAddress& dst,
+                            std::uint16_t dport, const Bytes& data) {
+    if (src.is_v4()) {
+        return concat({ethernet(0x0800), ipv4(src, dst, 17, 8 + data.size()),
+                       udp(sport, dport, data.size()), data});
+    }
+    return concat({ethernet(0x86DD), ipv6(src, dst, 17, 8 + data.size()),
+                   udp(sport, dport, data.size()), data});
+}
+
+// Builds DNS messages for tests: a header, then questions and answers appended in order.
+struct DnsMessage {
+    Bytes bytes;
+
+    // flags: 0x8180 = standard response, no error. Counts are filled in as records are added.
+    explicit DnsMessage(std::uint16_t flags = 0x8180) {
+        put16(bytes, 0x1234);  // id
+        put16(bytes, flags);
+        for (int i = 0; i < 4; ++i) put16(bytes, 0);
+    }
+
+    // A name as length-prefixed labels: "www.example.com" -> 3www7example3com0.
+    static Bytes name(const std::string& dotted) {
+        Bytes out;
+        std::size_t start = 0;
+        while (start <= dotted.size() && !dotted.empty()) {
+            const std::size_t dot = dotted.find('.', start);
+            const std::string label = dotted.substr(start, dot == std::string::npos ? std::string::npos : dot - start);
+            out.push_back(static_cast<std::uint8_t>(label.size()));
+            out.insert(out.end(), label.begin(), label.end());
+            if (dot == std::string::npos) break;
+            start = dot + 1;
+        }
+        out.push_back(0);
+        return out;
+    }
+    static Bytes pointer(std::uint16_t offset) {
+        return {static_cast<std::uint8_t>(0xC0 | (offset >> 8)), static_cast<std::uint8_t>(offset)};
+    }
+
+    void bump(std::size_t count_offset) {
+        const auto v = static_cast<std::uint16_t>((bytes[count_offset] << 8 | bytes[count_offset + 1]) + 1);
+        bytes[count_offset] = static_cast<std::uint8_t>(v >> 8);
+        bytes[count_offset + 1] = static_cast<std::uint8_t>(v);
+    }
+
+    DnsMessage& question(const Bytes& encoded_name, std::uint16_t type = 1) {
+        bytes.insert(bytes.end(), encoded_name.begin(), encoded_name.end());
+        put16(bytes, type);
+        put16(bytes, 1);  // class IN
+        bump(4);
+        return *this;
+    }
+
+    DnsMessage& answer(const Bytes& owner, std::uint16_t type, const Bytes& data,
+                       std::uint16_t klass = 1) {
+        bytes.insert(bytes.end(), owner.begin(), owner.end());
+        put16(bytes, type);
+        put16(bytes, klass);
+        put32(bytes, 300);  // TTL
+        put16(bytes, static_cast<std::uint16_t>(data.size()));
+        bytes.insert(bytes.end(), data.begin(), data.end());
+        bump(6);
+        return *this;
+    }
+
+    static Bytes a(const IpAddress& v4) {
+        const auto& b = v4.bytes();
+        return {b[12], b[13], b[14], b[15]};
+    }
+    static Bytes aaaa(const IpAddress& v6) { return Bytes(v6.bytes().begin(), v6.bytes().end()); }
+};
+
 inline Bytes tcp_frame(const IpAddress& src, std::uint16_t sport, const IpAddress& dst,
                        std::uint16_t dport, std::size_t payload_length = 0,
                        std::uint8_t flags = 0x10) {
     return concat({ethernet(0x0800), ipv4(src, dst, 6, 20 + payload_length),
                    tcp(sport, dport, flags), payload(payload_length)});
 }
+
+// A UDP frame carrying exactly `data` as its payload, over IPv4 or IPv6 to match `src`.
+inline Bytes udp_frame_with(const IpAddress& src, std::uint16_t sport, const IpAddress& dst,
+                            std::uint16_t dport, const Bytes& data);
 
 inline Bytes udp_frame(const IpAddress& src, std::uint16_t sport, const IpAddress& dst,
                        std::uint16_t dport, std::size_t payload_length = 0) {

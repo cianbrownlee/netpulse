@@ -21,10 +21,15 @@ struct TrafficCounter {
 // means "this address has no name".
 enum class NameState : std::uint8_t { Unknown, Named, NoName };
 
+// Where a name came from: a reverse-DNS lookup NetPulse made itself, or a DNS/mDNS answer a
+// device on the network received (--dns-names), which is usually the more meaningful of the two.
+enum class NameSource : std::uint8_t { None, ReverseDns, ObservedDns };
+
 struct HostRow {
     IpAddress ip;
-    std::string name;          // reverse-DNS name; empty unless name_state is Named
+    std::string name;          // empty unless name_state is Named
     NameState name_state = NameState::Unknown;
+    NameSource name_source = NameSource::None;
     bool is_local = false;     // private/LAN address rather than an internet one
     std::uint64_t packets = 0; // sent + received
     std::uint64_t bytes = 0;   // sent + received
@@ -103,6 +108,7 @@ struct Snapshot {
     CaptureHealth health;
     Status status;
     std::string local_networks;  // what counts as "your side" beyond private ranges, as text
+    bool dns_names = false;      // names from DNS answers are on (--dns-names)
 };
 
 }  // namespace netpulse

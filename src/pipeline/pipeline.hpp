@@ -37,6 +37,10 @@ public:
         // Networks that count as "your side" on top of the capture interface's own subnets
         // (which a live capture finds by itself). Mostly for replays, which have no interface.
         std::vector<IpPrefix> local_networks;
+        // Read DNS and mDNS answers to name addresses (opt-in: it means reading the contents of
+        // DNS responses, the one exception to headers-only capture). Sets both the capture's
+        // DNS exception and the aggregator's DNS parsing.
+        bool dns_names = false;
         std::size_t queue_capacity = 4096;
         // Most packets the aggregator takes from the queue per lock (1 = one at a time).
         std::size_t batch_size = PacketBatcher::kDefaultBatchSize;
@@ -76,6 +80,7 @@ private:
     struct NameLookup {
         NameState state = NameState::Unknown;
         std::string name;
+        NameSource source = NameSource::None;
     };
     NameLookup lookup_name(const IpAddress& ip);
 

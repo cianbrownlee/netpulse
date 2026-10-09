@@ -16,6 +16,7 @@ ends with something runnable and a check-in before moving on.
 | 5. Teaching layer | **Done, pending live check.** Classifier and status line (pure, unit-tested), category section, per-device "now" rates, and "why" explanations for every judgment. Verified end to end on a 70 s replay with one of each traffic pattern; still needs a look on real traffic and threshold tuning |
 | 6. Benchmarking & least privilege | **Done.** Three measured changes: no per-packet allocation, batched hand-off, kernel-side truncation. Live TCP capture 47% → 5% of a core; the capture no longer slows the traffic it measures. See [benchmarks.md](benchmarks.md) |
 | 7. Docs, CI, polish | **Mostly done.** Fresh-clone test passes (0 warnings, all tests). Remaining: confirm CI green on GitHub; tune thresholds on real traffic |
+| Phase 2: DNS names | **Done, pending live check.** Opt-in `--dns-names`: a BPF filter keeps 512 bytes of DNS/mDNS responses only; a hardened DNS parser (backward-only compression pointers, no control characters) names addresses from the answers devices receive. Verified end to end on the replay fixture (video and call become known-service matches). TLS SNI deliberately deferred (see below) |
 | Phase 2: IPv6 | **Done.** IPv6 with extension-header chains and fragments, IPv4/IPv6 split in the protocol view, IPv6-aware labels, resolver and classifier; fuzzed under ASan. "Local" now means the capture interface's own subnets too (IPv6 home devices have public addresses), plus `--local` for replays. Still unverified on a real IPv6 network: WSL2's NAT mode has no IPv6 connectivity |
 
 ## Corrections folded in before building
@@ -99,3 +100,17 @@ ends with something runnable and a check-in before moving on.
 - Fixtures and CI first: cheap, and every later stage leans on them.
 - Each checkpoint is also a scope checkpoint: if a stage runs long, trim scope there rather than
   letting the slip compound.
+
+## Deliberately deferred
+
+- **TLS SNI (server name from the TLS handshake).** Would name HTTPS connections even when DNS
+  answers aren't seen (DNS over HTTPS, cached lookups). Not done yet because doing it properly
+  is a multi-week feature: modern Chrome sends ~1.8 kB ClientHellos (post-quantum key shares)
+  split across two TCP segments, with extension order randomized, so finding the name needs
+  reassembly of each connection's first flight; QUIC carries its ClientHello encrypted with
+  per-connection keys; and Encrypted Client Hello hides the name entirely on a growing share of
+  sites. It would also widen the opt-in payload exception beyond DNS.
+- **Native Windows port (Npcap).** The `PacketSource` interface is the seam; mostly build-system
+  and platform work.
+- **Security-grade anomaly detection.** The status line is deliberately a few literal checks; real
+  detection (scans, statistical baselines, false-positive tuning) is a different, harder problem.

@@ -55,10 +55,13 @@ endif()
 # so the whole thing is unit-testable without capture privileges.
 add_library(netpulse_core STATIC
   src/parse/packet_parser.cpp
+  src/parse/dns.cpp
+  src/capture/capture_filter.cpp
   src/aggregate/throughput_window.cpp
   src/aggregate/aggregator.cpp
   src/aggregate/classifier.cpp
   src/aggregate/status_tracker.cpp
+  src/aggregate/observed_names.cpp
   src/resolve/resolver.cpp
   src/util/format.cpp
   src/util/net.cpp
@@ -120,7 +123,9 @@ if(NETPULSE_BUILD_TESTS)
     tests/test_dashboard_model.cpp
     tests/test_classifier.cpp
     tests/test_status_tracker.cpp
-    tests/test_local_networks.cpp)
+    tests/test_local_networks.cpp
+    tests/test_dns.cpp
+    tests/test_capture_filter.cpp)
   target_link_libraries(netpulse_tests PRIVATE netpulse_view Catch2::Catch2WithMain)
   target_include_directories(netpulse_tests PRIVATE tests)
   # Discover test cases when ctest runs rather than as a post-build step, so building never
@@ -141,4 +146,11 @@ if(NETPULSE_BUILD_TESTS)
     COMMAND netpulse --read ${CMAKE_SOURCE_DIR}/sample_pcaps/traffic_mix.pcap --plain --no-resolve)
   set_tests_properties(replay_traffic_mix_pcap PROPERTIES
     PASS_REGULAR_EXPRESSION "categories: streaming=1 browsing=8 calls-gaming=1 file-transfer=1 other=1\nstatus: device-above-usual")
+
+  # With --dns-names, the DNS answers in the same capture name the video and call servers, so
+  # those two become known-service matches instead of pattern guesses.
+  add_test(NAME replay_traffic_mix_dns_names
+    COMMAND netpulse --read ${CMAKE_SOURCE_DIR}/sample_pcaps/traffic_mix.pcap --plain --no-resolve --dns-names)
+  set_tests_properties(replay_traffic_mix_dns_names PROPERTIES
+    PASS_REGULAR_EXPRESSION "Streaming / video +\\[known-domain match\\][^\n]*\n[^\n]*\n *Calls / gaming +\\[known-domain match\\]")
 endif()
