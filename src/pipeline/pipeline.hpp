@@ -35,6 +35,8 @@ public:
         CaptureConfig capture;
         bool resolve_names = true;
         std::size_t queue_capacity = 4096;
+        // Most packets the aggregator takes from the queue per lock (1 = one at a time).
+        std::size_t batch_size = PacketBatcher::kDefaultBatchSize;
         std::chrono::milliseconds publish_interval{250};
         Aggregator::Config aggregator;
     };

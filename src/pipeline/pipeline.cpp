@@ -66,25 +66,32 @@ void Pipeline::aggregate_loop() {
     // as one instant, and replaying the same file always produces the same results.
     const bool offline = capture_->is_offline();
     auto next_publish = offline ? Clock::time_point{} : Clock::now() + config_.publish_interval;
+    auto publish_if_due = [&](Clock::time_point clock) {
+        if (clock < next_publish) return;
+        const auto now = traffic_time();
+        publish(now, now - started_at_);
+        next_publish = clock + config_.publish_interval;
+    };
 
+    const std::size_t batch_size = std::max<std::size_t>(config_.batch_size, 1);
+    std::vector<CapturedPacket> batch;
+    batch.reserve(batch_size);
     while (true) {
         // A short wait keeps snapshots flowing on a quiet network: the loop wakes at least
         // every 50 ms to check whether a publish is due even if no packets arrive.
-        auto packet = queue_.pop_for(std::chrono::milliseconds(50));
-        if (packet) {
-            const PacketInfo info = parse_packet(std::span<const std::uint8_t>(packet->data));
-            aggregator_.ingest(info, packet->wire_length, packet->timestamp);
-            latest_packet_time_ = std::max(latest_packet_time_, packet->timestamp);
-        } else if (queue_.drained()) {
+        if (queue_.pop_batch(batch, batch_size, std::chrono::milliseconds(50)) == 0 &&
+            queue_.drained()) {
             break;
         }
-
-        const auto clock = offline ? traffic_time() : Clock::now();
-        if (clock >= next_publish) {
-            const auto now = traffic_time();
-            publish(now, now - started_at_);
-            next_publish = clock + config_.publish_interval;
+        for (const CapturedPacket& packet : batch) {
+            const PacketInfo info = parse_packet(packet.data());
+            aggregator_.ingest(info, packet.wire_length, packet.timestamp);
+            latest_packet_time_ = std::max(latest_packet_time_, packet.timestamp);
+            // Replay decides publishes packet by packet on the file's clock, so where batches
+            // happen to split never changes the results.
+            if (offline) publish_if_due(traffic_time());
         }
+        if (!offline) publish_if_due(Clock::now());
     }
 
     const auto end = traffic_time();

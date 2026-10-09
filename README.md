@@ -39,6 +39,10 @@ Decisions worth knowing about:
   a hung DNS server delays a name appearing, never the statistics, and never blocks quitting.
 - **Conversations, not packets.** Flow keys are canonical, so both directions of a conversation
   share one entry, with byte counts per direction.
+- **No heap allocation and no per-packet locking on the hot path.** Packets are fixed-size values
+  in a preallocated ring, handed between threads in batches. Measured at 8.3 M packets/s through
+  the full pipeline, 3× the first version, at a third of the CPU per packet; see
+  [docs/benchmarks.md](docs/benchmarks.md) for how, and what was slow before.
 
 ## How NetPulse makes its judgments (and where they fall short)
 

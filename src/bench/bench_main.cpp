@@ -34,6 +34,10 @@ namespace {
 std::atomic<std::uint64_t> g_allocations{0};
 }
 
+// These replace the global allocator as a pair (malloc/free underneath), which GCC's
+// mismatched-new-delete check can't see through once they're inlined.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmismatched-new-delete"
 void* operator new(std::size_t size) {
     g_allocations.fetch_add(1, std::memory_order_relaxed);
     if (void* p = std::malloc(size == 0 ? 1 : size)) return p;
@@ -41,6 +45,7 @@ void* operator new(std::size_t size) {
 }
 void operator delete(void* p) noexcept { std::free(p); }
 void operator delete(void* p, std::size_t) noexcept { std::free(p); }
+#pragma GCC diagnostic pop
 
 namespace {
 
@@ -128,16 +133,28 @@ std::vector<Frame> make_frames(std::size_t flows, std::size_t count) {
 
 class SyntheticSource final : public PacketSource {
 public:
-    SyntheticSource(std::vector<Frame> frames, std::uint64_t packets, bool overload)
-        : frames_(std::move(frames)), packets_(packets), overload_(overload) {}
+    // rate: packets offered per second (0 = as fast as possible). Any rate implies overload
+    // semantics: the producer never waits, as live capture doesn't.
+    SyntheticSource(std::vector<Frame> frames, std::uint64_t packets, bool overload, double rate,
+                    std::size_t batch_size)
+        : frames_(std::move(frames)), packets_(packets), overload_(overload || rate > 0),
+          rate_(rate), batch_size_(batch_size) {}
 
     void run(BoundedQueue<CapturedPacket>& queue) override {
-        PacketBatcher batcher(queue, overload_ ? PacketBatcher::Overflow::Drop
-                                               : PacketBatcher::Overflow::Wait);
+        PacketBatcher batcher(queue,
+                              overload_ ? PacketBatcher::Overflow::Drop : PacketBatcher::Overflow::Wait,
+                              batch_size_);
+        const auto start = Clock::now();
         for (std::uint64_t i = 0; i < packets_; ++i) {
-            if ((i & 1023) == 0) {
+            if ((i & 4095) == 0) {
                 if (stop_.load(std::memory_order_relaxed)) break;
                 produced_.store(i, std::memory_order_relaxed);
+                if (rate_ > 0) {  // pace in chunks of 4096 packets
+                    batcher.flush();
+                    std::this_thread::sleep_until(
+                        start + std::chrono::duration_cast<Clock::duration>(
+                                    std::chrono::duration<double>(static_cast<double>(i) / rate_)));
+                }
             }
             const Frame& f = frames_[i % frames_.size()];
             batcher.add(f.headers.data(), f.headers.size(), f.wire_length, Clock::now());
@@ -160,6 +177,8 @@ private:
     std::vector<Frame> frames_;
     std::uint64_t packets_;
     bool overload_;
+    double rate_;
+    std::size_t batch_size_;
     std::atomic<bool> stop_{false};
     std::atomic<std::uint64_t> produced_{0};
     std::string description_ = "synthetic";
@@ -173,21 +192,28 @@ int main(int argc, char** argv) {
     std::uint64_t packets = 10'000'000;
     std::size_t flows = 2000;
     bool overload = false;
+    double rate = 0;
+    std::size_t batch = PacketBatcher::kDefaultBatchSize;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--packets" && i + 1 < argc) packets = std::strtoull(argv[++i], nullptr, 10);
         else if (arg == "--flows" && i + 1 < argc) flows = std::strtoull(argv[++i], nullptr, 10);
+        else if (arg == "--rate" && i + 1 < argc) rate = std::strtod(argv[++i], nullptr);
+        else if (arg == "--batch" && i + 1 < argc) batch = std::strtoull(argv[++i], nullptr, 10);
         else if (arg == "--overload") overload = true;
         else {
-            std::fprintf(stderr, "usage: netpulse_bench [--packets N] [--flows N] [--overload]\n");
+            std::fprintf(stderr,
+                         "usage: netpulse_bench [--packets N] [--flows N] [--overload] "
+                         "[--rate PACKETS_PER_SEC] [--batch N]\n");
             return 2;
         }
     }
 
     Pipeline::Config config;
     config.resolve_names = false;
+    config.batch_size = batch;
     Pipeline pipeline(config, std::make_unique<SyntheticSource>(make_frames(flows, 65536), packets,
-                                                                overload));
+                                                                overload, rate, batch));
 
     rusage before{};
     getrusage(RUSAGE_SELF, &before);
@@ -212,11 +238,17 @@ int main(int argc, char** argv) {
     const long switches = (after.ru_nvcsw - before.ru_nvcsw) + (after.ru_nivcsw - before.ru_nivcsw);
     const double per_packet = static_cast<double>(packets);
 
-    std::printf("mode:              %s, %s packets, %zu flows\n", overload ? "overload" : "throughput",
-                format_count(packets).c_str(), flows);
+    std::string mode = overload ? "overload" : "throughput";
+    if (rate > 0) mode = "fixed rate " + format_count(static_cast<std::uint64_t>(rate)) + " packets/s offered";
+    std::printf("mode:              %s, %s packets, %zu flows, batch %zu\n", mode.c_str(),
+                format_count(packets).c_str(), flows, batch);
     std::printf("time:              %.2f s  ->  %.2f M packets/s processed (%.0f ns/packet)\n", wall,
                 processed / wall / 1e6, wall * 1e9 / per_packet);
-    std::printf("cpu:               %.2f s (%.2f s system)  ->  %.2f cores busy\n", cpu, sys, cpu / wall);
+    // What the producer actually managed. With --rate this can fall short of the target when the
+    // producer side itself is the bottleneck, and drop rates are only comparable at equal offers.
+    std::printf("offered:           %.2f M packets/s\n", per_packet / wall / 1e6);
+    std::printf("cpu:               %.2f s (%.2f s system)  ->  %.2f cores busy, %.0f ns CPU/packet\n",
+                cpu, sys, cpu / wall, cpu * 1e9 / per_packet);
     std::printf("context switches:  %s  (%.1f per 1,000 packets)\n", format_count(switches).c_str(),
                 switches * 1000.0 / per_packet);
     std::printf("heap allocations:  %s  (%.3f per packet)\n", format_count(allocs).c_str(),

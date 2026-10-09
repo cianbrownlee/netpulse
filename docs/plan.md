@@ -14,7 +14,7 @@ ends with something runnable and a check-in before moving on.
 | 3. Async hostname resolution | **Done, verified live** (real reverse-DNS names appear) |
 | 4. Core dashboard | **Done.** Focus model (follows items across re-sorts, unit-tested), Learn panel, scrolling, keyboard + mouse wheel; verified by driving it with real keystrokes |
 | 5. Teaching layer | **Done, pending live check.** Classifier and status line (pure, unit-tested), category section, per-device "now" rates, and "why" explanations for every judgment. Verified end to end on a 70 s replay with one of each traffic pattern; still needs a look on real traffic and threshold tuning |
-| 6. Benchmarking & least privilege | `setcap` flow + actionable permission error done; benchmarking not started |
+| 6. Benchmarking & least privilege | **Done except the live "after" run.** Two measured optimizations (no per-packet allocation, batched hand-off): 2.7 → 8.3 M packets/s, CPU per packet −67%. See [benchmarks.md](benchmarks.md) |
 | 7. Docs, CI, polish | CI workflow written (3 jobs); README is a working draft |
 
 ## Corrections folded in before building
