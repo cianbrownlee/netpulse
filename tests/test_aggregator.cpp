@@ -200,3 +200,23 @@ TEST_CASE("IPv4 and IPv6 are counted by version and together", "[aggregate][ipv6
     CHECK(agg.hosts().at(laptop6).bytes == 2500);
     CHECK(agg.hosts().at(server6).bytes == 2500);
 }
+
+TEST_CASE("local networks mark hosts and flow ends as local", "[aggregate][local]") {
+    Aggregator::Config config;
+    config.local_networks.add(*IpPrefix::parse("2601:600:8a00:1234::/64"));
+    Aggregator agg(config);
+    const IpAddress laptop6 = ip6("2601:600:8a00:1234::14");
+    const IpAddress server6 = ip6("2606:4700::6810:84e5");
+    ingest_frame(agg, tcp6_frame(laptop6, 51000, server6, 443), 1500, t0);
+
+    const Snapshot s = agg.build_snapshot(t0 + 1s);
+    for (const auto& h : s.top_hosts) {
+        INFO(h.ip.to_string());
+        CHECK(h.is_local == (h.ip == laptop6));
+    }
+    REQUIRE(s.top_flows.size() == 1);
+    const FlowRow& f = s.top_flows.front();
+    CHECK(f.local_a == (f.key.ip_a == laptop6));
+    CHECK(f.local_b == (f.key.ip_b == laptop6));
+    CHECK(s.local_networks == "2601:600:8a00:1234::/64");
+}

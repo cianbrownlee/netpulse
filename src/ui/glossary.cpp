@@ -87,9 +87,10 @@ constexpr std::array kGlossary = {
     GlossaryEntry{"local-address", "Local vs. internet address",
                   "Some IP address ranges (like 192.168.x.x and 10.x.x.x) are reserved for private "
                   "networks, such as the devices in your home. \"Local\" means the address is on "
-                  "that private side, or is one devices use to announce things to everyone nearby "
-                  "(multicast and broadcast). \"Internet\" means a public address out on the wider "
-                  "internet."},
+                  "that private side, inside the network NetPulse is capturing on (with IPv6, home "
+                  "devices usually get public addresses, so this is how they're recognized), or one "
+                  "devices use to announce things to everyone nearby (multicast and broadcast). "
+                  "\"Internet\" means an address out on the wider internet."},
     GlossaryEntry{"flow-shape-heuristic", "Flow-shape heuristic",
                   "A label based on the shape of a conversation: how long it lasts, how much data "
                   "moves and in which direction, and whether it flows continuously or in bursts. "

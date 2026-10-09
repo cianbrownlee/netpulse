@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <string>
+#include <utility>
 
 #include "aggregate/classifier.hpp"
 #include "util/format.hpp"
@@ -35,7 +36,8 @@ Status heads_up(StatusKind kind, std::string headline, std::string explanation) 
 
 }  // namespace
 
-StatusTracker::StatusTracker(StatusThresholds thresholds) : t_(thresholds) {
+StatusTracker::StatusTracker(StatusThresholds thresholds, LocalNetworks local)
+    : t_(thresholds), local_(std::move(local)) {
     shown_.explanation = kNormalExplanation;
 }
 
@@ -93,7 +95,7 @@ std::optional<Status> StatusTracker::check_capture_health(const Snapshot& s) {
 std::optional<Status> StatusTracker::check_device_above_usual(const Snapshot& s) const {
     if (s.uptime < t_.warm_up) return std::nullopt;
     for (const HostRow& h : s.rate_leaders) {
-        if (!is_private(h.ip)) continue;  // "devices" are on your side of the network
+        if (!local_.is_device(h.ip)) continue;  // "devices" are on your side of the network
         if (h.seen_for < t_.warm_up) continue;
         if (h.current_bps < t_.min_rate_bps) continue;
         if (h.current_bps < t_.above_usual_factor * h.average_bps) continue;
@@ -114,7 +116,7 @@ std::optional<Status> StatusTracker::check_device_above_usual(const Snapshot& s)
 std::optional<Status> StatusTracker::check_new_device(const Snapshot& s) const {
     if (s.current_bps < t_.min_rate_bps) return std::nullopt;
     for (const HostRow& h : s.rate_leaders) {
-        if (!is_private(h.ip)) continue;
+        if (!local_.is_device(h.ip)) continue;
         if (h.seen_for > t_.new_device_window) continue;
         // Only devices that arrived after the warm-up: at the start of a session everything is
         // "new" to NetPulse, which says nothing about the network.
@@ -136,13 +138,13 @@ std::optional<Status> StatusTracker::check_new_device(const Snapshot& s) const {
 std::optional<Status> StatusTracker::check_unnamed_destination(const Snapshot& s) const {
     if (!s.busiest_flow || s.current_bps < t_.min_rate_bps) return std::nullopt;
     const FlowRow& f = *s.busiest_flow;
-    const FlowEnds ends = orient(f.key);
+    const FlowEnds ends = orient(f.key, local_);
     const bool remote_is_a = !ends.client_is_a;
     const NameState remote_state = remote_is_a ? f.name_state_a : f.name_state_b;
 
     // Only a finished lookup that found nothing counts; "still looking it up" is not "no name".
     if (remote_state != NameState::NoName) return std::nullopt;
-    if (is_local(ends.server_ip)) return std::nullopt;  // unnamed LAN devices are normal
+    if (local_.is_local(ends.server_ip)) return std::nullopt;  // unnamed LAN devices are normal
     if (f.stats.duration() < t_.unnamed_min_duration) return std::nullopt;
     const double share = f.stats.current_bps / s.current_bps;
     if (share <= t_.unnamed_share) return std::nullopt;

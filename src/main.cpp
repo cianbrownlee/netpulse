@@ -8,6 +8,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "capture/packet_capture.hpp"
 #include "pipeline/pipeline.hpp"
@@ -24,6 +25,7 @@ struct Options {
     bool plain = false;
     bool resolve = true;
     bool list_interfaces = false;
+    std::vector<IpPrefix> local_networks;
     std::optional<int> duration_seconds;
 };
 
@@ -39,7 +41,10 @@ void print_usage(std::ostream& out) {
            "                         (automatic when output is not a terminal)\n"
            "  -d, --duration SECS    stop after SECS seconds (live --plain mode)\n"
            "      --no-resolve       don't look up hostnames (no reverse-DNS queries)\n"
-           "      --list-interfaces  list capture interfaces and exit\n"
+           "      --local PREFIX     treat PREFIX (e.g. 2001:db8:1::/64) as your own network;\n"
+           "                         repeatable. Live capture adds the interface's own subnets\n"
+           "                         automatically, so this matters mostly for replays\n"
+           "      --list-interfaces  list capture interfaces and their networks, then exit\n"
            "  -h, --help             show this help\n";
 }
 
@@ -80,6 +85,16 @@ std::optional<Options> parse_args(int argc, char** argv) {
             opts.plain = true;
         } else if (arg == "--no-resolve") {
             opts.resolve = false;
+        } else if (arg == "--local") {
+            auto v = value();
+            if (!v) return std::nullopt;
+            const auto prefix = IpPrefix::parse(*v);
+            if (!prefix) {
+                std::cerr << "netpulse: --local expects an address or prefix like 192.168.1.0/24 "
+                             "or 2001:db8:1::/64, not '" << *v << "'\n";
+                return std::nullopt;
+            }
+            opts.local_networks.push_back(*prefix);
         } else if (arg == "--list-interfaces") {
             opts.list_interfaces = true;
         } else {
@@ -132,7 +147,12 @@ int main(int argc, char** argv) {
     if (!opts) return 2;
 
     if (opts->list_interfaces) {
-        for (const auto& name : PacketCapture::list_interfaces()) std::cout << name << '\n';
+        for (const auto& i : PacketCapture::describe_interfaces()) {
+            std::cout << i.name;
+            if (!i.up) std::cout << " (down)";
+            if (!i.networks.empty()) std::cout << "  " << i.networks.to_string();
+            std::cout << '\n';
+        }
         return 0;
     }
 
@@ -140,6 +160,7 @@ int main(int argc, char** argv) {
     config.capture.interface = opts->interface;
     config.capture.pcap_file = opts->read_file;
     config.resolve_names = opts->resolve;
+    config.local_networks = opts->local_networks;
 
     std::optional<Pipeline> pipeline;
     try {

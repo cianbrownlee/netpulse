@@ -9,6 +9,7 @@
 #include "aggregate/snapshot.hpp"
 #include "aggregate/throughput_window.hpp"
 #include "parse/packet_parser.hpp"
+#include "util/local_networks.hpp"
 
 namespace netpulse {
 
@@ -38,6 +39,8 @@ public:
         // enough that one burst doesn't look like a trend, short enough to feel live.
         std::chrono::seconds rate_time_constant{3};
         std::size_t rate_leaders = 5;
+        // Networks that count as "your side" in addition to private address ranges.
+        LocalNetworks local_networks;
     };
 
     Aggregator();
@@ -62,6 +65,7 @@ private:
     void credit_host(const IpAddress& ip, std::uint32_t bytes, Clock::time_point t);
     void update_rates(Clock::time_point now);
     HostRow host_row(const IpAddress& ip, const HostStats& h, Clock::time_point now) const;
+    FlowRow flow_row(const FlowKey& key, const FlowStats& stats) const;
 
     Config config_;
     TrafficCounter total_, tcp_, udp_, other_ip_, non_ip_, malformed_;

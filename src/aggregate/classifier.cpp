@@ -62,12 +62,12 @@ const char* method_tag(ClassMethod m) {
 // Facts
 // ---------------------------------------------------------------------------------------------
 
-FlowEnds orient(const FlowKey& k) {
-    const bool a_private = is_private(k.ip_a);
-    const bool b_private = is_private(k.ip_b);
+FlowEnds orient(const FlowKey& k, const LocalNetworks& local) {
+    const bool a_is_device = local.is_device(k.ip_a);
+    const bool b_is_device = local.is_device(k.ip_b);
     FlowEnds e;
-    if (a_private != b_private) {
-        e.client_is_a = a_private;
+    if (a_is_device != b_is_device) {
+        e.client_is_a = a_is_device;
     } else {
         e.client_is_a = k.port_a >= k.port_b;  // the server listens on the lower port
     }
@@ -77,8 +77,9 @@ FlowEnds orient(const FlowKey& k) {
     return e;
 }
 
-FlowFacts flow_facts(const FlowKey& key, const FlowStats& stats, std::string remote_name) {
-    const FlowEnds ends = orient(key);
+FlowFacts flow_facts(const FlowKey& key, const FlowStats& stats, std::string remote_name,
+                     const LocalNetworks& local) {
+    const FlowEnds ends = orient(key, local);
     FlowFacts f;
     f.protocol = key.protocol;
     f.server_port = ends.server_port;

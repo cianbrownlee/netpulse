@@ -37,7 +37,7 @@ inline std::string conversation_label(const FlowRow& f, const char* arrow) {
     };
     std::string a = endpoint(f.key.ip_a, f.name_a, f.key.port_a);
     std::string b = endpoint(f.key.ip_b, f.name_b, f.key.port_b);
-    if (is_local(f.key.ip_b) && !is_local(f.key.ip_a)) std::swap(a, b);
+    if (f.local_b && !f.local_a) std::swap(a, b);
     return a + arrow + b;
 }
 

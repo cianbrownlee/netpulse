@@ -14,14 +14,33 @@
 
 namespace netpulse {
 
+namespace {
+
+// The capture interface's own subnets, plus anything configured explicitly.
+LocalNetworks gather_local_networks(const PacketSource& source, const Pipeline::Config& config) {
+    LocalNetworks networks = source.local_networks();
+    for (const auto& prefix : config.local_networks) networks.add(prefix);
+    for (const auto& prefix : config.aggregator.local_networks.prefixes()) networks.add(prefix);
+    return networks;
+}
+
+Aggregator::Config with_networks(Aggregator::Config config, const LocalNetworks& networks) {
+    config.local_networks = networks;
+    return config;
+}
+
+}  // namespace
+
 Pipeline::Pipeline(Config config)
     : Pipeline(config, PacketCapture::open(config.capture)) {}
 
 Pipeline::Pipeline(Config config, std::unique_ptr<PacketSource> source)
     : config_(std::move(config)),
       capture_(std::move(source)),
+      local_networks_(gather_local_networks(*capture_, config_)),
       queue_(config_.queue_capacity),
-      aggregator_(config_.aggregator),
+      aggregator_(with_networks(config_.aggregator, local_networks_)),
+      status_(StatusThresholds{}, local_networks_),
       latest_(std::make_shared<Snapshot>()) {
     if (config_.resolve_names) resolver_ = std::make_unique<Resolver>();
 }
@@ -133,9 +152,9 @@ void Pipeline::publish(Clock::time_point now, Clock::duration uptime) {
         flow.name_a = std::move(a.name);
         flow.name_state_b = b.state;
         flow.name_b = std::move(b.name);
-        const bool remote_is_a = !orient(flow.key).client_is_a;
+        const bool remote_is_a = !orient(flow.key, local_networks_).client_is_a;
         const FlowFacts facts =
-            flow_facts(flow.key, flow.stats, remote_is_a ? flow.name_a : flow.name_b);
+            flow_facts(flow.key, flow.stats, remote_is_a ? flow.name_a : flow.name_b, local_networks_);
         const Classification c = classify(facts);
         flow.category = c.category;
         flow.method = c.method;
@@ -178,7 +197,8 @@ void Pipeline::categorize(Snapshot& s) {
     // Every active conversation, not just the ones on screen, so the breakdown covers all of
     // the traffic. The reason text is only built for the biggest flow in each category.
     for (const auto& [key, stats] : aggregator_.flows()) {
-        FlowFacts facts = flow_facts(key, stats, lookup_name(orient(key).server_ip).name);
+        FlowFacts facts = flow_facts(key, stats, lookup_name(orient(key, local_networks_).server_ip).name,
+                                     local_networks_);
         const Classification c = classify(facts);
         Tally& t = tally[static_cast<std::size_t>(c.category)];
         t.bytes += stats.bytes;
@@ -207,7 +227,7 @@ void Pipeline::categorize(Snapshot& s) {
                                                               : ClassMethod::FlowShape;
         }
 
-        const FlowEnds ends = orient(t.biggest_key);
+        const FlowEnds ends = orient(t.biggest_key, local_networks_);
         const std::string server = t.biggest_facts.remote_name.empty()
                                        ? ends.server_ip.to_string()
                                        : t.biggest_facts.remote_name;

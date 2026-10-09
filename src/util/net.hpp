@@ -15,9 +15,12 @@ namespace netpulse {
 // can't recognize as local; see LocalNetworks for the interface-aware version.
 bool is_private(const IpAddress& ip);
 
-// Addresses that belong to "your" side of the network rather than the internet: everything
-// is_private covers, plus multicast, broadcast and the unspecified address (which never name a
-// single device).
+// Group and placeholder addresses: multicast, broadcast and unspecified ones, and IPv4's "this
+// network" block. They stay on the local network but never name a single device.
+bool is_group_or_unspecified(const IpAddress& ip);
+
+// Addresses that belong to "your" side of the network rather than the internet, judged from the
+// address alone: is_private or is_group_or_unspecified.
 bool is_local(const IpAddress& ip);
 
 // "TCP", "UDP", "ICMP", "ICMPv6", ..., or "IP proto 47" for anything without a friendly name.

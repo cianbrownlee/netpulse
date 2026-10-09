@@ -1,6 +1,8 @@
 #include "capture/packet_capture.hpp"
 
+#include <arpa/inet.h>
 #include <linux/filter.h>
+#include <netinet/in.h>
 #include <pcap/pcap.h>
 #include <sys/socket.h>
 
@@ -143,7 +145,11 @@ std::unique_ptr<PacketCapture> PacketCapture::open(const CaptureConfig& config) 
                      "reach the capture buffer and be trimmed afterwards. Capture still works.\n",
                      std::strerror(errno));
     }
-    return std::unique_ptr<PacketCapture>(new PacketCapture(handle, false, iface));
+    auto capture = std::unique_ptr<PacketCapture>(new PacketCapture(handle, false, iface));
+    for (const auto& i : describe_interfaces()) {
+        if (i.name == iface) capture->local_networks_ = i.networks;
+    }
+    return capture;
 }
 
 PacketCapture::PacketCapture(pcap* handle, bool offline, std::string description)
@@ -223,13 +229,52 @@ std::optional<std::string> PacketCapture::error() const {
     return error_;
 }
 
-std::vector<std::string> PacketCapture::list_interfaces() {
-    std::vector<std::string> names;
+namespace {
+
+std::optional<IpAddress> to_ip_address(const sockaddr* sa) {
+    if (!sa) return std::nullopt;
+    if (sa->sa_family == AF_INET) {
+        const auto* in = reinterpret_cast<const sockaddr_in*>(sa);
+        return IpAddress::v4(ntohl(in->sin_addr.s_addr));
+    }
+    if (sa->sa_family == AF_INET6) {
+        const auto* in6 = reinterpret_cast<const sockaddr_in6*>(sa);
+        IpAddress::Bytes bytes{};
+        std::memcpy(bytes.data(), in6->sin6_addr.s6_addr, bytes.size());
+        return IpAddress::v6(bytes);
+    }
+    return std::nullopt;
+}
+
+}  // namespace
+
+std::vector<PacketCapture::InterfaceInfo> PacketCapture::describe_interfaces() {
+    std::vector<InterfaceInfo> interfaces;
     pcap_if_t* devices = nullptr;
     char errbuf[PCAP_ERRBUF_SIZE] = {};
-    if (pcap_findalldevs(&devices, errbuf) != 0) return names;
-    for (const pcap_if_t* d = devices; d; d = d->next) names.emplace_back(d->name);
+    if (pcap_findalldevs(&devices, errbuf) != 0) return interfaces;
+    for (const pcap_if_t* d = devices; d; d = d->next) {
+        InterfaceInfo info;
+        info.name = d->name;
+        info.up = (d->flags & PCAP_IF_UP) != 0;
+        info.loopback = (d->flags & PCAP_IF_LOOPBACK) != 0;
+        for (const pcap_addr_t* a = d->addresses; a; a = a->next) {
+            const auto address = to_ip_address(a->addr);
+            const auto netmask = to_ip_address(a->netmask);
+            if (!address || !netmask) continue;
+            if (const auto prefix = IpPrefix::from_netmask(*address, *netmask)) {
+                info.networks.add(*prefix);
+            }
+        }
+        interfaces.push_back(std::move(info));
+    }
     pcap_freealldevs(devices);
+    return interfaces;
+}
+
+std::vector<std::string> PacketCapture::list_interfaces() {
+    std::vector<std::string> names;
+    for (const auto& i : describe_interfaces()) names.push_back(i.name);
     return names;
 }
 

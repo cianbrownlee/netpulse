@@ -34,6 +34,9 @@ public:
     struct Config {
         CaptureConfig capture;
         bool resolve_names = true;
+        // Networks that count as "your side" on top of the capture interface's own subnets
+        // (which a live capture finds by itself). Mostly for replays, which have no interface.
+        std::vector<IpPrefix> local_networks;
         std::size_t queue_capacity = 4096;
         // Most packets the aggregator takes from the queue per lock (1 = one at a time).
         std::size_t batch_size = PacketBatcher::kDefaultBatchSize;
@@ -78,6 +81,7 @@ private:
 
     Config config_;
     std::unique_ptr<PacketSource> capture_;
+    LocalNetworks local_networks_;  // the interface's subnets plus Config::local_networks
     BoundedQueue<CapturedPacket> queue_;
     Aggregator aggregator_;  // touched only by the aggregator thread
     StatusTracker status_;   // likewise

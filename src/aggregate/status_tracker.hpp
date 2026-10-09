@@ -6,6 +6,7 @@
 
 #include "aggregate/snapshot.hpp"
 #include "aggregate/status.hpp"
+#include "util/local_networks.hpp"
 
 namespace netpulse {
 
@@ -43,7 +44,7 @@ struct StatusThresholds {
 // live capture and replay.
 class StatusTracker {
 public:
-    explicit StatusTracker(StatusThresholds thresholds = {});
+    explicit StatusTracker(StatusThresholds thresholds = {}, LocalNetworks local = {});
 
     Status update(const Snapshot& snapshot);
 
@@ -63,6 +64,7 @@ private:
     std::optional<Status> check_unnamed_destination(const Snapshot& s) const;
 
     StatusThresholds t_;
+    LocalNetworks local_;  // which addresses are devices on your side
     std::deque<HealthSample> health_;
     Status shown_;
     Clock::duration last_true_{};  // when the shown heads-up condition last held

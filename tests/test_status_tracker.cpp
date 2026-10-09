@@ -187,3 +187,20 @@ TEST_CASE("a heads-up stays up briefly after its condition clears", "[status]") 
     calm.uptime = 10min + 11s;
     CHECK(tracker.update(calm).kind == StatusKind::Normal);  // hold expired
 }
+
+TEST_CASE("devices with public IPv6 addresses count once their network is known",
+          "[status][ipv6][local]") {
+    const IpAddress laptop6 = netpulse::test::ip6("2601:600:8a00:1234::14");
+    Snapshot s = at(10min, 1'200'000);
+    s.rate_leaders = {device(laptop6, 1'000'000, 100'000, 10min)};
+
+    StatusTracker unaware;
+    CHECK(unaware.update(s).kind == StatusKind::Normal);  // looks like an internet server
+
+    LocalNetworks home;
+    home.add(*IpPrefix::parse("2601:600:8a00:1234::/64"));
+    StatusTracker aware(StatusThresholds{}, home);
+    const Status st = aware.update(s);
+    CHECK(st.kind == StatusKind::DeviceAboveUsual);
+    CHECK(st.headline.find("2601:600:8a00:1234::14") != std::string::npos);
+}

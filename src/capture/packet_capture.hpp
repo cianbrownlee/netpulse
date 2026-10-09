@@ -65,7 +65,16 @@ public:
     std::optional<std::string> error() const override;
     bool is_offline() const override { return offline_; }
     const std::string& description() const override { return description_; }
+    LocalNetworks local_networks() const override { return local_networks_; }
 
+    struct InterfaceInfo {
+        std::string name;
+        bool up = false;
+        bool loopback = false;
+        LocalNetworks networks;  // from the interface's addresses and netmasks
+    };
+    // Every capture interface with its networks. Needs no capture privileges.
+    static std::vector<InterfaceInfo> describe_interfaces();
     static std::vector<std::string> list_interfaces();
     // First interface that is up, not loopback, and has an IPv4 address.
     static std::optional<std::string> default_interface();
@@ -79,6 +88,7 @@ private:
     pcap* handle_;
     bool offline_;
     std::string description_;
+    LocalNetworks local_networks_;
     std::optional<PacketBatcher> batcher_;  // set for the duration of run()
 
     // Replay keeps the file's own timing: each packet is stamped at run start plus its offset

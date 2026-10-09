@@ -129,7 +129,7 @@ void Aggregator::update_rates(Clock::time_point now) {
 HostRow Aggregator::host_row(const IpAddress& ip, const HostStats& h, Clock::time_point now) const {
     HostRow row;
     row.ip = ip;
-    row.is_local = is_local(ip);
+    row.is_local = config_.local_networks.is_local(ip);
     row.packets = h.packets;
     row.bytes = h.bytes;
     row.current_bps = h.current_bps;
@@ -137,6 +137,15 @@ HostRow Aggregator::host_row(const IpAddress& ip, const HostStats& h, Clock::tim
     // At least one second, so a host seen a moment ago doesn't get an absurd average.
     const double seconds = std::max(1.0, std::chrono::duration<double>(row.seen_for).count());
     row.average_bps = static_cast<double>(h.bytes) / seconds;
+    return row;
+}
+
+FlowRow Aggregator::flow_row(const FlowKey& key, const FlowStats& stats) const {
+    FlowRow row;
+    row.key = key;
+    row.stats = stats;
+    row.local_a = config_.local_networks.is_local(key.ip_a);
+    row.local_b = config_.local_networks.is_local(key.ip_b);
     return row;
 }
 
@@ -180,21 +189,16 @@ Snapshot Aggregator::build_snapshot(Clock::time_point now) {
              return a->second.bytes != b->second.bytes ? a->second.bytes > b->second.bytes
                                                        : key_less(a->first, b->first);
          })) {
-        FlowRow row;
-        row.key = e->first;
-        row.stats = e->second;
-        s.top_flows.push_back(std::move(row));
+        s.top_flows.push_back(flow_row(e->first, e->second));
     }
     for (const auto* e : top_entries(flows_, 1, [](auto* a, auto* b) {
              return a->second.current_bps != b->second.current_bps
                         ? a->second.current_bps > b->second.current_bps
                         : key_less(a->first, b->first);
          })) {
-        FlowRow row;
-        row.key = e->first;
-        row.stats = e->second;
-        s.busiest_flow = std::move(row);
+        s.busiest_flow = flow_row(e->first, e->second);
     }
+    s.local_networks = config_.local_networks.to_string();
     return s;
 }
 

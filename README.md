@@ -119,6 +119,15 @@ file's own timestamps:
 Under WSL2, `eth0` is a virtual adapter behind NAT, so NetPulse sees the WSL VM's own traffic,
 not every device on your home network. The packets are real; the vantage point is just narrower.
 
+**What counts as "local".** Private IPv4 ranges (192.168.x.x and so on) are obviously yours, but
+IPv6 home networks usually give every device a *public* address. So a live capture also treats
+everything inside the capture interface's own subnets as local (`--list-interfaces` shows them),
+and `--local PREFIX` adds more, which mostly matters for replays:
+
+```bash
+~/netpulse-build/netpulse --read capture.pcap --local 2001:db8:1::/64
+```
+
 ## Testing
 
 ```bash

@@ -190,3 +190,21 @@ TEST_CASE("orient: IPv6 unique-local and link-local ends are clients", "[classif
     CHECK(orient(k).client_ip == netpulse::test::ip6("fd00::14"));
     CHECK(orient(k).server_port == 443);
 }
+
+TEST_CASE("orient: with the home network known, a public IPv6 device is the client",
+          "[classifier][ipv6][local]") {
+    // Both ends are public IPv6 addresses, and the server's port happens to be the higher one,
+    // so without knowing the home network the port heuristic would pick the wrong end.
+    FlowKey k;
+    k.ip_a = netpulse::test::ip6("2601:600:8a00:1234::14");  // the laptop
+    k.port_a = 443;  // e.g. a laptop serving something to the outside
+    k.ip_b = netpulse::test::ip6("2606:4700::6810:84e5");
+    k.port_b = 60000;
+    k.protocol = kTcp;
+    CHECK(orient(k).client_ip == k.ip_b);  // ports alone: wrong side
+
+    LocalNetworks home;
+    home.add(*IpPrefix::parse("2601:600:8a00:1234::/64"));
+    CHECK(orient(k, home).client_ip == k.ip_a);
+    CHECK(orient(k, home).server_port == 60000);
+}

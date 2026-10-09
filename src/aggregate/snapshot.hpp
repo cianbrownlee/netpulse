@@ -36,6 +36,8 @@ struct HostRow {
 struct FlowRow {
     FlowKey key;
     FlowStats stats;
+    bool local_a = false;  // endpoint A is on your side of the network
+    bool local_b = false;
     std::string name_a;
     std::string name_b;
     NameState name_state_a = NameState::Unknown;
@@ -100,6 +102,7 @@ struct Snapshot {
 
     CaptureHealth health;
     Status status;
+    std::string local_networks;  // what counts as "your side" beyond private ranges, as text
 };
 
 }  // namespace netpulse

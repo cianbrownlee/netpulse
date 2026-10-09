@@ -62,7 +62,8 @@ add_library(netpulse_core STATIC
   src/resolve/resolver.cpp
   src/util/format.cpp
   src/util/net.cpp
-  src/util/ip_address.cpp)
+  src/util/ip_address.cpp
+  src/util/local_networks.cpp)
 target_include_directories(netpulse_core PUBLIC src)
 target_link_libraries(netpulse_core PUBLIC Threads::Threads netpulse_options)
 
@@ -118,7 +119,8 @@ if(NETPULSE_BUILD_TESTS)
     tests/test_focus_model.cpp
     tests/test_dashboard_model.cpp
     tests/test_classifier.cpp
-    tests/test_status_tracker.cpp)
+    tests/test_status_tracker.cpp
+    tests/test_local_networks.cpp)
   target_link_libraries(netpulse_tests PRIVATE netpulse_view Catch2::Catch2WithMain)
   target_include_directories(netpulse_tests PRIVATE tests)
   # Discover test cases when ctest runs rather than as a post-build step, so building never

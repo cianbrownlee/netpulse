@@ -11,6 +11,7 @@
 
 #include "capture/captured_packet.hpp"
 #include "util/bounded_queue.hpp"
+#include "util/local_networks.hpp"
 
 namespace netpulse {
 
@@ -34,6 +35,8 @@ public:
     virtual std::optional<std::string> error() const = 0;  // why run() ended, if an error
     virtual bool is_offline() const = 0;  // replaying recorded traffic rather than live
     virtual const std::string& description() const = 0;
+    // The networks the source is attached to (a live interface's subnets), if it knows them.
+    virtual LocalNetworks local_networks() const { return {}; }
 };
 
 // Turns raw captured bytes into queue entries, handing them over in batches.

@@ -27,6 +27,7 @@ void print_report(std::ostream& out, const Snapshot& s, const std::string& sourc
     const auto uptime = std::chrono::duration_cast<std::chrono::seconds>(s.uptime);
     out << "== NetPulse · " << source << " · running " << format_duration(uptime) << " ==\n";
     out << (s.status.heads_up() ? "[!] " : "[ok] ") << s.status.headline << "\n";
+    if (!s.local_networks.empty()) out << "Your networks: " << s.local_networks << "\n";
     out << "Throughput: " << format_rate(s.bytes_per_second) << " · "
         << format_count(static_cast<std::uint64_t>(s.packets_per_second)) << " packets/s\n";
     out << "Total: " << format_count(s.total.packets) << " packets, "

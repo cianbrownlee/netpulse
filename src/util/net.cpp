@@ -37,8 +37,9 @@ bool is_private(const IpAddress& ip) {
            ip == kV6Loopback;
 }
 
-bool is_local(const IpAddress& ip) {
-    if (is_private(ip)) return true;
+bool is_local(const IpAddress& ip) { return is_private(ip) || is_group_or_unspecified(ip); }
+
+bool is_group_or_unspecified(const IpAddress& ip) {
     if (ip.is_v4()) {
         return ip.in_prefix(v4(0, 0, 0, 0), 8) ||  // "this network" (e.g. DHCP's 0.0.0.0)
                // Multicast: in practice, local discovery traffic (SSDP, mDNS, IGMP) that never

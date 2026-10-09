@@ -8,20 +8,22 @@
 
 #include "aggregate/category.hpp"
 #include "aggregate/flow.hpp"
+#include "util/local_networks.hpp"
 
 namespace netpulse {
 
 // Which end of a conversation is "yours" (the client / local device) and which is the remote
-// service. One private address and one public address settle it; otherwise the end with the
-// lower port is taken as the server, since services listen on well-known low ports and
-// clients use high ephemeral ones.
+// service. One end that's a device on your side (a private address, or inside one of `local`'s
+// networks, which is how IPv6 devices with public addresses are recognized) settles it;
+// otherwise the end with the lower port is taken as the server, since services listen on
+// well-known low ports and clients use high ephemeral ones.
 struct FlowEnds {
     bool client_is_a = true;
     IpAddress client_ip;
     IpAddress server_ip;
     std::uint16_t server_port = 0;
 };
-FlowEnds orient(const FlowKey& key);
+FlowEnds orient(const FlowKey& key, const LocalNetworks& local = no_local_networks());
 
 // Everything the classifier looks at for one conversation. Headers and timing only.
 struct FlowFacts {
@@ -35,7 +37,8 @@ struct FlowFacts {
     double duty_cycle = 0;                // share of lifetime seconds that carried traffic
     std::string remote_name;              // reverse-DNS name of the server end, if known
 };
-FlowFacts flow_facts(const FlowKey& key, const FlowStats& stats, std::string remote_name);
+FlowFacts flow_facts(const FlowKey& key, const FlowStats& stats, std::string remote_name,
+                     const LocalNetworks& local = no_local_networks());
 
 struct KnownService {
     std::string_view domain;  // matched as the name itself or any subdomain of it
