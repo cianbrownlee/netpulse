@@ -168,3 +168,39 @@ if(NETPULSE_BUILD_TESTS)
   set_tests_properties(replay_traffic_mix_dns_names PROPERTIES
     PASS_REGULAR_EXPRESSION "Streaming / video +\\[known-domain match\\][^\n]*\n[^\n]*\n *Calls / gaming +\\[known-domain match\\]")
 endif()
+
+# ---------------------------------------------------------------------------
+# Fuzz targets (fuzz/): code that reads untrusted bytes, checked on arbitrary input
+# ---------------------------------------------------------------------------
+# NETPULSE_FUZZ=ON builds them as coverage-guided libFuzzer binaries (clang only; see
+# tools/fuzz.sh). Otherwise, with tests on, each is linked to a small standalone driver and runs
+# as a test over the sample captures' frames plus random mutations of them.
+option(NETPULSE_FUZZ "Build the fuzz targets with libFuzzer (requires clang)" OFF)
+set(NETPULSE_FUZZ_TARGETS fuzz_packet fuzz_dns fuzz_capture_filter)
+if(NETPULSE_FUZZ)
+  if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    message(FATAL_ERROR "NETPULSE_FUZZ needs clang (libFuzzer): configure with CXX=clang++")
+  endif()
+  # Coverage instrumentation for NetPulse's own code, which is what the fuzzer explores.
+  target_compile_options(netpulse_options INTERFACE -fsanitize=fuzzer-no-link)
+  foreach(target ${NETPULSE_FUZZ_TARGETS})
+    add_executable(${target} fuzz/${target}.cpp)
+    target_link_libraries(${target} PRIVATE netpulse_core)
+    target_include_directories(${target} PRIVATE fuzz tests)
+    target_link_options(${target} PRIVATE -fsanitize=fuzzer)
+  endforeach()
+elseif(NETPULSE_BUILD_TESTS)
+  foreach(target ${NETPULSE_FUZZ_TARGETS})
+    add_executable(${target} fuzz/${target}.cpp fuzz/standalone_main.cpp)
+    target_link_libraries(${target} PRIVATE netpulse_core)
+    target_include_directories(${target} PRIVATE fuzz tests)
+  endforeach()
+  set(seed_captures --pcap ${CMAKE_SOURCE_DIR}/sample_pcaps/synthetic.pcap
+                    --pcap ${CMAKE_SOURCE_DIR}/sample_pcaps/traffic_mix.pcap)
+  add_test(NAME fuzz_packet COMMAND fuzz_packet ${seed_captures} --mutations 100000)
+  add_test(NAME fuzz_dns
+    COMMAND fuzz_dns ${seed_captures} --dns ${CMAKE_SOURCE_DIR}/fuzz/corpus/dns --mutations 100000)
+  add_test(NAME fuzz_capture_filter COMMAND fuzz_capture_filter ${seed_captures} --mutations 100000)
+  # Seconds normally (a minute or so under ThreadSanitizer); a hang, e.g. a parser loop, fails.
+  set_tests_properties(${NETPULSE_FUZZ_TARGETS} PROPERTIES TIMEOUT 300)
+endif()

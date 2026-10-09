@@ -56,3 +56,28 @@ jobs:
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
           TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
         run: ctest --test-dir build --output-on-failure
+
+  # Coverage-guided fuzzing of the code that reads untrusted bytes: the packet parser (with the
+  # aggregator behind it), the DNS-answer parser, and the kernel capture filter checked against
+  # the parser. A minute each per push; the regular test jobs also run every target over the
+  # sample captures and random mutations.
+  fuzz:
+    name: fuzz (libFuzzer)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libpcap-dev clang libclang-rt-18-dev
+
+      - name: Fuzz
+        run: tools/fuzz.sh 60 build-fuzz
+
+      - name: Keep failing inputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes
+          path: build-fuzz/crashes/
