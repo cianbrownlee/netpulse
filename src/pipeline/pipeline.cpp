@@ -13,8 +13,11 @@
 namespace netpulse {
 
 Pipeline::Pipeline(Config config)
+    : Pipeline(config, PacketCapture::open(config.capture)) {}
+
+Pipeline::Pipeline(Config config, std::unique_ptr<PacketSource> source)
     : config_(std::move(config)),
-      capture_(PacketCapture::open(config_.capture)),
+      capture_(std::move(source)),
       queue_(config_.queue_capacity),
       aggregator_(config_.aggregator),
       latest_(std::make_shared<Snapshot>()) {

@@ -123,7 +123,7 @@ PacketCapture::PacketCapture(pcap* handle, bool offline, std::string description
 PacketCapture::~PacketCapture() { pcap_close(handle_); }
 
 void PacketCapture::run(BoundedQueue<CapturedPacket>& queue) {
-    queue_ = &queue;
+    batcher_.emplace(queue, offline_ ? PacketBatcher::Overflow::Wait : PacketBatcher::Overflow::Drop);
     replay_origin_ = std::chrono::steady_clock::now();
     auto next_stats = replay_origin_;
 
@@ -138,6 +138,7 @@ void PacketCapture::run(BoundedQueue<CapturedPacket>& queue) {
             error_ = "Capture on '" + description_ + "' stopped: " + pcap_geterr(handle_);
             break;
         }
+        batcher_->flush();
         if (offline_ && n == 0) break;  // end of file
 
         if (!offline_ && std::chrono::steady_clock::now() >= next_stats) {
@@ -145,6 +146,8 @@ void PacketCapture::run(BoundedQueue<CapturedPacket>& queue) {
             next_stats = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
         }
     }
+    batcher_->flush();
+    batcher_.reset();
     if (!offline_) refresh_kernel_stats();
 }
 
@@ -157,24 +160,18 @@ void PacketCapture::on_packet(unsigned char* user, const pcap_pkthdr* header,
                               const unsigned char* bytes) {
     auto* self = reinterpret_cast<PacketCapture*>(user);
 
-    CapturedPacket packet;
-    packet.data.assign(bytes, bytes + header->caplen);  // copy: libpcap reuses `bytes`
-    packet.wire_length = header->len;
+    std::chrono::steady_clock::time_point timestamp;
     if (self->offline_) {
         const std::int64_t ts_us = std::int64_t{header->ts.tv_sec} * 1'000'000 + header->ts.tv_usec;
         if (!self->first_file_timestamp_us_) self->first_file_timestamp_us_ = ts_us;
-        packet.timestamp = self->replay_origin_ +
-                           std::chrono::microseconds(ts_us - *self->first_file_timestamp_us_);
+        timestamp = self->replay_origin_ +
+                    std::chrono::microseconds(ts_us - *self->first_file_timestamp_us_);
     } else {
-        packet.timestamp = std::chrono::steady_clock::now();
+        timestamp = std::chrono::steady_clock::now();
     }
     self->captured_.fetch_add(1, std::memory_order_relaxed);
-
-    if (self->offline_) {
-        self->queue_->push(std::move(packet));
-    } else {
-        self->queue_->try_push(std::move(packet));  // a full queue counts the drop itself
-    }
+    // The batcher copies: libpcap reuses `bytes` as soon as this callback returns.
+    self->batcher_->add(bytes, header->caplen, header->len, timestamp);
 }
 
 void PacketCapture::refresh_kernel_stats() {

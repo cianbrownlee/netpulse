@@ -42,6 +42,8 @@ public:
     // Opens the capture source immediately, so permission and interface problems surface as
     // a CaptureError before any thread starts or the screen is taken over.
     explicit Pipeline(Config config);
+    // Uses `source` instead of opening config.capture (the benchmark feeds synthetic packets).
+    Pipeline(Config config, std::unique_ptr<PacketSource> source);
     ~Pipeline();
 
     Pipeline(const Pipeline&) = delete;
@@ -73,7 +75,7 @@ private:
     NameLookup lookup_name(std::uint32_t ip);
 
     Config config_;
-    std::unique_ptr<PacketCapture> capture_;
+    std::unique_ptr<PacketSource> capture_;
     BoundedQueue<CapturedPacket> queue_;
     Aggregator aggregator_;  // touched only by the aggregator thread
     StatusTracker status_;   // likewise

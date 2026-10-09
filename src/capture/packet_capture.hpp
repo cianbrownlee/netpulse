@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "capture/captured_packet.hpp"
+#include "capture/packet_source.hpp"
 #include "util/bounded_queue.hpp"
 
 struct pcap;
@@ -40,32 +41,28 @@ public:
     using std::runtime_error::runtime_error;
 };
 
-struct CaptureCounters {
-    std::uint64_t captured = 0;         // packets delivered to our callback
-    std::uint64_t kernel_drops = 0;     // pcap_stats ps_drop: kernel buffer overflowed
-    std::uint64_t interface_drops = 0;  // pcap_stats ps_ifdrop: dropped by the interface/driver
-};
-
-class PacketCapture {
+// libpcap capture: live from an interface, or replayed from a .pcap file.
+// (kernel_drops / interface_drops come from pcap_stats ps_drop / ps_ifdrop.)
+class PacketCapture : public PacketSource {
 public:
     static std::unique_ptr<PacketCapture> open(const CaptureConfig& config);
 
-    ~PacketCapture();
+    ~PacketCapture() override;
     PacketCapture(const PacketCapture&) = delete;
     PacketCapture& operator=(const PacketCapture&) = delete;
 
-    // Captures on the calling thread until stop(), end of file, or an error. Live packets go
-    // through try_push (drop and count if the queue is full); file packets through push
-    // (wait for space), since replay has no kernel buffer that could overflow.
-    void run(BoundedQueue<CapturedPacket>& queue);
+    // Captures on the calling thread until stop(), end of file, or an error. Live packets are
+    // dropped (and counted) if the queue is full; file packets wait for space, since replay
+    // has no kernel buffer that could overflow.
+    void run(BoundedQueue<CapturedPacket>& queue) override;
 
     // Safe to call from any thread. Wakes run() even if it is blocked waiting for packets.
-    void stop();
+    void stop() override;
 
-    CaptureCounters counters() const;
-    std::optional<std::string> error() const;  // why run() ended, if it was an error
-    bool is_offline() const { return offline_; }
-    const std::string& description() const { return description_; }
+    CaptureCounters counters() const override;
+    std::optional<std::string> error() const override;
+    bool is_offline() const override { return offline_; }
+    const std::string& description() const override { return description_; }
 
     static std::vector<std::string> list_interfaces();
     // First interface that is up, not loopback, and has an IPv4 address.
@@ -80,7 +77,7 @@ private:
     pcap* handle_;
     bool offline_;
     std::string description_;
-    BoundedQueue<CapturedPacket>* queue_ = nullptr;
+    std::optional<PacketBatcher> batcher_;  // set for the duration of run()
 
     // Replay keeps the file's own timing: each packet is stamped at run start plus its offset
     // from the file's first packet, so rates and the sparkline show the recorded traffic's

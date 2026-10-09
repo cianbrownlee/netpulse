@@ -88,6 +88,10 @@ target_link_libraries(netpulse_ui PUBLIC netpulse_capture netpulse_view
 add_executable(netpulse src/main.cpp)
 target_link_libraries(netpulse PRIVATE netpulse_ui)
 
+# Synthetic-load benchmark of the pipeline itself (no capture privileges needed).
+add_executable(netpulse_bench src/bench/bench_main.cpp)
+target_link_libraries(netpulse_bench PRIVATE netpulse_capture)
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
