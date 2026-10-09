@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "capture/packet_capture.hpp"
+#include "demo/demo_source.hpp"
 #include "pipeline/pipeline.hpp"
 #include "ui/dashboard.hpp"
 #include "ui/plain_report.hpp"
@@ -22,6 +23,7 @@ using namespace netpulse;
 struct Options {
     std::string interface;
     std::string read_file;
+    bool demo = false;
     bool plain = false;
     bool resolve = true;
     bool dns_names = false;
@@ -38,6 +40,8 @@ void print_usage(std::ostream& out) {
            "\n"
            "  -i, --interface NAME   capture live from NAME (default: first active non-loopback)\n"
            "  -r, --read FILE        replay a .pcap file instead of capturing live\n"
+           "      --demo             show simulated traffic from a small household (no capture\n"
+           "                         permissions needed; addresses are documentation examples)\n"
            "      --plain            print text reports instead of the dashboard\n"
            "                         (automatic when output is not a terminal)\n"
            "  -d, --duration SECS    stop after SECS seconds (live --plain mode)\n"
@@ -84,6 +88,8 @@ std::optional<Options> parse_args(int argc, char** argv) {
                 std::cerr << "netpulse: --duration expects a number of seconds\n";
                 return std::nullopt;
             }
+        } else if (arg == "--demo") {
+            opts.demo = true;
         } else if (arg == "--plain") {
             opts.plain = true;
         } else if (arg == "--no-resolve") {
@@ -108,8 +114,8 @@ std::optional<Options> parse_args(int argc, char** argv) {
             return std::nullopt;
         }
     }
-    if (!opts.interface.empty() && !opts.read_file.empty()) {
-        std::cerr << "netpulse: use either --interface or --read, not both\n";
+    if ((!opts.interface.empty()) + (!opts.read_file.empty()) + opts.demo > 1) {
+        std::cerr << "netpulse: use only one of --interface, --read and --demo\n";
         return std::nullopt;
     }
     return opts;
@@ -132,8 +138,9 @@ int run_plain(Pipeline& pipeline, const Options& opts) {
         if (opts.duration_seconds && now - started >= std::chrono::seconds(*opts.duration_seconds)) {
             break;
         }
-        // Live mode prints a rolling report each second; replay just prints the final one.
-        if (!pipeline.is_offline() && now >= next_report) {
+        // Live mode (and the demo, which never ends) prints a rolling report each second;
+        // replay just prints the final one.
+        if ((!pipeline.is_offline() || pipeline.is_demo()) && now >= next_report) {
             print_report(std::cout, *pipeline.latest(), pipeline.source());
             std::cout << '\n';
             next_report = now + std::chrono::seconds(1);
@@ -170,7 +177,15 @@ int main(int argc, char** argv) {
 
     std::optional<Pipeline> pipeline;
     try {
-        pipeline.emplace(config);
+        if (opts->demo) {
+            // The demo's DNS answers name its servers; reverse lookups of documentation
+            // addresses would only send pointless queries to the real DNS.
+            config.dns_names = true;
+            config.resolve_names = false;
+            pipeline.emplace(config, std::make_unique<DemoSource>());
+        } else {
+            pipeline.emplace(config);
+        }
     } catch (const CaptureError& e) {
         std::cerr << "netpulse: " << e.what() << '\n';
         return 1;

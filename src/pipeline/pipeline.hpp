@@ -68,6 +68,7 @@ public:
     bool finished() const { return finished_.load(); }
     std::optional<std::string> error() const { return capture_->error(); }
     bool is_offline() const { return capture_->is_offline(); }
+    bool is_demo() const { return capture_->is_demo(); }
     const std::string& source() const { return capture_->description(); }
 
 private:

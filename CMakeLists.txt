@@ -84,6 +84,11 @@ add_library(netpulse_view STATIC
   src/ui/dashboard_model.cpp)
 target_link_libraries(netpulse_view PUBLIC netpulse_core)
 
+# Simulated household traffic for --demo.
+add_library(netpulse_demo STATIC
+  src/demo/demo_source.cpp)
+target_link_libraries(netpulse_demo PUBLIC netpulse_core)
+
 add_library(netpulse_ui STATIC
   src/ui/dashboard.cpp
   src/ui/plain_report.cpp)
@@ -91,7 +96,7 @@ target_link_libraries(netpulse_ui PUBLIC netpulse_capture netpulse_view
   ftxui::screen ftxui::dom ftxui::component)
 
 add_executable(netpulse src/main.cpp)
-target_link_libraries(netpulse PRIVATE netpulse_ui)
+target_link_libraries(netpulse PRIVATE netpulse_ui netpulse_demo)
 
 # Synthetic-load benchmark of the pipeline itself (no capture privileges needed).
 add_executable(netpulse_bench src/bench/bench_main.cpp)
@@ -125,8 +130,10 @@ if(NETPULSE_BUILD_TESTS)
     tests/test_status_tracker.cpp
     tests/test_local_networks.cpp
     tests/test_dns.cpp
-    tests/test_capture_filter.cpp)
-  target_link_libraries(netpulse_tests PRIVATE netpulse_view Catch2::Catch2WithMain)
+    tests/test_capture_filter.cpp
+    tests/test_demo.cpp)
+  target_link_libraries(netpulse_tests PRIVATE netpulse_view netpulse_capture netpulse_demo
+    Catch2::Catch2WithMain)
   target_include_directories(netpulse_tests PRIVATE tests)
   # Discover test cases when ctest runs rather than as a post-build step, so building never
   # depends on being able to execute the binary (sanitizer runtimes, cross builds).
@@ -139,6 +146,12 @@ if(NETPULSE_BUILD_TESTS)
     COMMAND netpulse --read ${CMAKE_SOURCE_DIR}/sample_pcaps/synthetic.pcap --plain --no-resolve)
   set_tests_properties(replay_synthetic_pcap PROPERTIES
     PASS_REGULAR_EXPRESSION "summary: packets=72 bytes=44782 tcp=44 udp=19 other_ip=4 non_ip=2 malformed=3 ipv6=9 flows=10 hosts=13 missed=0")
+
+  # The --demo flag end to end (the demo's content is checked in test_demo.cpp).
+  add_test(NAME demo_plain
+    COMMAND netpulse --demo --plain --duration 1)
+  set_tests_properties(demo_plain PROPERTIES
+    PASS_REGULAR_EXPRESSION "summary: packets=[1-9][0-9]* [^\n]* malformed=0 [^\n]*\ncategories: streaming=2 ")
 
   # End-to-end for the classifier and status line: one conversation of each traffic pattern,
   # ending in a large download that should read as "a lot more data than usual".

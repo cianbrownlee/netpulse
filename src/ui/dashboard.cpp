@@ -60,6 +60,7 @@ Element selectable(Element row, bool focused) {
 Element header(const Snapshot& s, const Pipeline& p) {
     std::string mode = "live";
     if (p.is_offline()) mode = p.finished() ? "replay finished" : "replaying file";
+    if (p.is_demo()) mode = "simulated traffic";
     if (s.dns_names) mode += " · DNS names on";
     const auto uptime = std::chrono::duration_cast<std::chrono::seconds>(s.uptime);
     return hbox({
