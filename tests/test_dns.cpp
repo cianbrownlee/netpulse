@@ -100,6 +100,14 @@ TEST_CASE("hostile names are rejected", "[dns][malformed]") {
         m.question(DnsMessage::pointer(kQuestionOffset));
         CHECK(parse(m.bytes).empty());
     }
+    SECTION("a backward pointer into the same name (a loop through the labels)") {
+        // "a", then a pointer back to that "a": earlier than the pointer, but it leads straight
+        // back to it. Rejected by the pointer rule, without relying on the name-length cap.
+        DnsMessage m;
+        m.question(Bytes{1, 'a', 0xC0, kQuestionOffset})
+            .answer(DnsMessage::pointer(kQuestionOffset), kTypeA, DnsMessage::a(ip(1, 2, 3, 4)));
+        CHECK(parse(m.bytes).empty());
+    }
     SECTION("a forward pointer") {
         DnsMessage m;
         m.question(DnsMessage::pointer(200));

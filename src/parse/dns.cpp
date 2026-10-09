@@ -25,6 +25,7 @@ std::optional<std::string> read_name(std::span<const std::uint8_t> msg, std::siz
                                      std::size_t& after) {
     std::string name;
     std::size_t pos = offset;
+    std::size_t lowest = offset;  // the earliest byte of this name read so far
     bool jumped = false;
     while (true) {
         if (pos >= msg.size()) return std::nullopt;
@@ -33,9 +34,14 @@ std::optional<std::string> read_name(std::span<const std::uint8_t> msg, std::siz
         if ((length & 0xC0) == 0xC0) {  // compression pointer: 14-bit offset into the message
             if (pos + 1 >= msg.size()) return std::nullopt;
             const std::size_t target = (std::size_t{length & 0x3Fu} << 8) | msg[pos + 1];
-            // Only backwards. Every jump then lands strictly earlier, so following pointers
-            // must end: a loop would need some pointer to go forwards or to itself.
-            if (target >= pos) return std::nullopt;
+            // Each jump must land before everything already read for this name. "Before this
+            // pointer" isn't enough: the labels after the landing spot could lead forward to
+            // the same pointer again, a loop only the name-length cap would end (found by
+            // fuzzing). With this rule the lowest position read strictly decreases, so there
+            // can be at most one jump per byte of the message. Real compression always points
+            // at an earlier name, so it's never affected.
+            if (target >= lowest) return std::nullopt;
+            lowest = target;
             if (!jumped) {
                 after = pos + 2;
                 jumped = true;
