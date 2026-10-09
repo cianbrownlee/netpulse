@@ -205,6 +205,24 @@ Each later change that touched the hot path was checked against the same harness
 | ...hash rewritten: two 8-byte loads, multiply-xor fold, one final mix | 5.7 M/s | 8.2 M/s | Regression recovered to within ~3% |
 | Packet copies move only the bytes in use (to make room for 512-byte DNS answers without slowing everything else down) | 8.2 M/s | **9.6 M/s** | A typical 60-byte header no longer drags a 256-byte array copy with it |
 
+## Windows: does Npcap truncate in the driver?
+
+On Linux the filter had to be attached to the socket by hand, because libpcap's own snaplen
+only trims after the kernel's copy. On Windows the filter goes in through `pcap_setfilter`, and
+the question was whether Npcap's driver honors its return value (how many bytes to keep) or
+only uses it as accept/reject. Measured with a small probe on a Wi-Fi adapter (MediaTek MT7925,
+Npcap 1.x, snaplen 512) for 8 s during a 25 MB download, without and with NetPulse's filter
+(192 bytes, 512 for DNS answers):
+
+| | Packets | Over 1,000 bytes on the wire | Kept longer than 192 bytes | Longest kept |
+|---|---|---|---|---|
+| No filter | 1,183 | 662 | 715 | 512 |
+| NetPulse's filter | 1,357 | 664 | **2, both DNS answers** | 255 |
+
+The driver keeps what the filter returns, so "headers only" holds on Windows too, enforced
+before anything reaches NetPulse. (If libpcap had fallen back to running the filter in user
+space, the full 512 bytes would still have arrived.)
+
 ## What's not done
 
 The queue is still a plain mutex + condition variable. A lock-free queue would be the next step

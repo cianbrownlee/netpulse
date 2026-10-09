@@ -1,7 +1,8 @@
 # NetPulse
 
-A live network traffic analyzer for Linux, written in C++20. It captures packet **headers**
-(never contents) with libpcap, parses Ethernet → IPv4 or IPv6 → TCP/UDP, and shows
+A live network traffic analyzer for Linux and Windows, written in C++20. It captures packet
+**headers** (never contents) with libpcap or Npcap, parses Ethernet → IPv4 or IPv6 → TCP/UDP,
+and shows
 throughput, protocol mix, top talkers and conversations in a terminal dashboard that explains
 itself: put the cursor on any number, label or judgment and the Learn panel says what it means
 and why NetPulse thinks so.
@@ -38,10 +39,12 @@ Decisions worth knowing about:
   is dropped *and counted*. Both kinds of loss (NetPulse's queue, the kernel buffer) are shown on
   screen, never hidden.
 - **Headers only, enforced in the kernel.** 192 bytes covers the deepest header stack NetPulse
-  parses. A kernel socket filter truncates every packet to that length *before* the kernel
-  copies it to NetPulse. libpcap's snaplen setting alone doesn't do this on Linux: it trims in
-  user space after the kernel has already copied the whole packet, which was found by
-  measurement (see [docs/benchmarks.md](docs/benchmarks.md)).
+  parses. A classic-BPF filter truncates every packet to that length *before* it's copied to
+  NetPulse: attached to the capture socket on Linux, installed in the Npcap driver on Windows.
+  libpcap's snaplen setting alone doesn't do this on Linux: it trims in user space after the
+  kernel has already copied the whole packet, which was found by measurement. On Windows,
+  measured during a download, nothing but DNS answers arrives longer than 192 bytes (see
+  [docs/benchmarks.md](docs/benchmarks.md)).
 - **One opt-in exception: DNS answers.** With `--dns-names`, the filter keeps up to 512 bytes of
   DNS and mDNS *responses* (and nothing more of anything else), so NetPulse can read which names
   your devices looked up: "142.250.72.14 is www.youtube.com". That names addresses reverse DNS
@@ -51,8 +54,13 @@ Decisions worth knowing about:
   name, so pointers can't loop ("backwards" alone wasn't enough, which fuzzing showed), and
   anything with control characters is rejected, so a DNS answer can't inject escape codes into
   your terminal.
-- **Least privilege.** The binary gets `CAP_NET_RAW` + `CAP_NET_ADMIN` via `setcap` instead of
-  running as root. Missing permission produces the exact command to fix it, not an errno string.
+- **Least privilege.** On Linux the binary gets `CAP_NET_RAW` + `CAP_NET_ADMIN` via `setcap`
+  instead of running as root; on Windows, Npcap's default install lets ordinary users capture.
+  Missing permission produces the exact fix, not an errno string.
+- **One codebase, two capture systems.** Everything above the capture layer (parsing,
+  aggregation, the classifier, the dashboard) is the same on Linux and Windows. The platform
+  differences are the capture filter's installation, adapter naming ("Wi-Fi" rather than
+  `\Device\NPF_{…}`), and a few small system calls in one file.
 - **DNS can't stall anything.** Reverse lookups run on worker threads with a session cache;
   a hung DNS server delays a name appearing, never the statistics, and never blocks quitting.
 - **Conversations, not packets.** Flow keys are canonical, so both directions of a conversation
@@ -93,7 +101,7 @@ traffic; most traffic going to an address with no reverse-DNS name. Each check h
 thresholds are tunable constants. The unnamed-address check will fire on some perfectly normal
 services, since many CDNs publish no reverse-DNS names; its explanation says so.
 
-## Building (WSL2 / Ubuntu 24.04)
+## Building on Linux (WSL2 / Ubuntu 24.04)
 
 ```bash
 sudo apt update && sudo apt install -y build-essential cmake libpcap-dev
@@ -110,7 +118,30 @@ cmake --build ~/netpulse-build -j
 
 FTXUI and Catch2 are fetched automatically by CMake (pinned versions).
 
-## Running
+## Building and running on Windows
+
+Needs [Npcap](https://npcap.com) (installed with Wireshark, or on its own; the free edition is
+fine), the [Npcap SDK](https://npcap.com/#download) unpacked anywhere, Visual Studio 2022 or
+its Build Tools with the C++ workload, CMake and Git. In a PowerShell or Developer prompt:
+
+```powershell
+cmake -S . -B build -DNPCAP_SDK=C:/path/to/npcap-sdk
+cmake --build build --config Release
+build\Release\netpulse.exe --list-interfaces
+build\Release\netpulse.exe                 # dashboard on the active adapter (q to quit)
+build\Release\netpulse.exe -i Wi-Fi --dns-names
+```
+
+No administrator rights are needed unless Npcap was installed with "Restrict Npcap driver's
+access to Administrators only". Interfaces go by their Windows names ("Wi-Fi", "Ethernet"), or
+any unique part of the adapter's description. By default NetPulse picks the connected hardware
+adapter, skipping virtual ones like WSL's and Hyper-V's. Unlike WSL, this sees the whole
+machine's traffic: browsers, calls, games and downloads. Run it in Windows Terminal for the
+dashboard's colors and box drawing.
+
+The benchmark and the fuzzing harnesses are Linux-only for now.
+
+## Running on Linux
 
 Grant capture capabilities once (repeat after every rebuild, since rebuilding replaces the binary):
 
@@ -149,7 +180,8 @@ explained in the Learn panel; **Enter** on a top talker lists only its conversat
 goes back); **Space** pauses the display; **?** lists every key; **q** quits.
 
 Under WSL2, `eth0` is a virtual adapter behind NAT, so NetPulse sees the WSL VM's own traffic,
-not every device on your home network. The packets are real; the vantage point is just narrower.
+not the rest of the machine's. The packets are real; the vantage point is just narrower. The
+Windows build sees everything the machine sends and receives.
 
 **What counts as "local".** Private IPv4 ranges (192.168.x.x and so on) are obviously yours, but
 IPv6 home networks usually give every device a *public* address. So a live capture also treats
@@ -190,7 +222,8 @@ ctest --test-dir ~/netpulse-build --output-on-failure
   a control-character leak) are each caught.
 - **CI** (GitHub Actions) runs everything three ways: a `-Werror` release build,
   AddressSanitizer + UndefinedBehaviorSanitizer, and ThreadSanitizer. A fourth job fuzzes each
-  target for a minute with libFuzzer.
+  target for a minute with libFuzzer, and a fifth builds with MSVC on Windows (warnings as
+  errors) and runs the tests there.
 
 To run a sanitizer build locally:
 
@@ -205,14 +238,14 @@ individual binaries under `setarch "$(uname -m)" -R`.
 ## Layout
 
 ```
-src/capture/    libpcap wrapper (live + file replay)
+src/capture/    libpcap / Npcap capture (live + file replay), the kernel filter
 src/demo/       simulated household traffic for --demo
 src/parse/      Ethernet / IPv4 / IPv6 (with extension headers) / TCP / UDP parsing: pure functions
 src/aggregate/  flows, hosts, throughput window, snapshots
 src/resolve/    async reverse-DNS with cache
 src/pipeline/   the threads and the hand-offs between them
 src/ui/         FTXUI dashboard and plain-text report
-src/util/       bounded queue, IPv4/IPv6 address type, formatting
+src/util/       bounded queue, IPv4/IPv6 address type, formatting, platform calls
 tests/          Catch2 suite
 fuzz/           fuzz targets, the driver that runs them as tests, DNS seed corpus
 tools/          fixture generator, live benchmark, demo recording (record_demo.sh draws
