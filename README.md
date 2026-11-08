@@ -1,11 +1,6 @@
 # NetPulse
 
-A live network traffic analyzer for Linux and Windows, written in C++20. It captures packet
-**headers** (never contents) with libpcap or Npcap, parses Ethernet → IPv4 or IPv6 → TCP/UDP,
-and shows
-throughput, protocol mix, top talkers and conversations in a terminal dashboard that explains
-itself: put the cursor on any number, label or judgment and the Learn panel says what it means
-and why NetPulse thinks so.
+A live network traffic analyzer for Linux and Windows, written in C++20. It captures packet headers (never contents) with libpcap or Npcap, parses Ethernet, IPv4 or IPv6, and TCP/UDP, and shows throughput, protocol mix, top talkers and conversations in a terminal dashboard. It is meant to teach as well as measure: put the cursor on any number, label or judgment and the Learn panel explains what it means and why NetPulse reached that conclusion.
 
 ![NetPulse running its built-in demo: a household's traffic by category, protocol, device and conversation; the status line flags a big download, and the view drills into that device's conversations](docs/demo.svg)
 
@@ -32,74 +27,26 @@ simulated household (the recording above) through the real pipeline.
                                        └────────────────┘
 ```
 
-Decisions worth knowing about:
+Main design decisions (more in [docs/design.md](docs/design.md)):
 
-- **Capture never waits on processing.** A slow consumer can't push loss back into the kernel
-  buffer where it's invisible. The queue between them is bounded, and when it's full the packet
-  is dropped *and counted*. Both kinds of loss (NetPulse's queue, the kernel buffer) are shown on
-  screen, never hidden.
-- **Headers only, enforced in the kernel.** 192 bytes covers the deepest header stack NetPulse
-  parses. A classic-BPF filter truncates every packet to that length *before* it's copied to
-  NetPulse: attached to the capture socket on Linux, installed in the Npcap driver on Windows.
-  libpcap's snaplen setting alone doesn't do this on Linux: it trims in user space after the
-  kernel has already copied the whole packet, which was found by measurement. On Windows,
-  measured during a download, nothing but DNS answers arrives longer than 192 bytes (see
-  [docs/benchmarks.md](docs/benchmarks.md)).
-- **One opt-in exception: DNS answers.** With `--dns-names`, the filter keeps up to 512 bytes of
-  DNS and mDNS *responses* (and nothing more of anything else), so NetPulse can read which names
-  your devices looked up: "142.250.72.14 is www.youtube.com". That names addresses reverse DNS
-  can't, and turns many pattern guesses into known-service matches. It's off by default because
-  it means reading the contents of one kind of packet. Names from the network are treated as
-  hostile input: each compression pointer must land before everything already read for that
-  name, so pointers can't loop ("backwards" alone wasn't enough, which fuzzing showed), and
-  anything with control characters is rejected, so a DNS answer can't inject escape codes into
-  your terminal.
-- **Least privilege.** On Linux the binary gets `CAP_NET_RAW` + `CAP_NET_ADMIN` via `setcap`
-  instead of running as root; on Windows, Npcap's default install lets ordinary users capture.
-  Missing permission produces the exact fix, not an errno string.
-- **One codebase, two capture systems.** Everything above the capture layer (parsing,
-  aggregation, the classifier, the dashboard) is the same on Linux and Windows. The platform
-  differences are the capture filter's installation, adapter naming ("Wi-Fi" rather than
-  `\Device\NPF_{…}`), and a few small system calls in one file.
-- **DNS can't stall anything.** Reverse lookups run on worker threads with a session cache;
-  a hung DNS server delays a name appearing, never the statistics, and never blocks quitting.
-- **Conversations, not packets.** Flow keys are canonical, so both directions of a conversation
-  share one entry, with byte counts per direction.
-- **No heap allocation and no per-packet locking on the hot path.** Packets are fixed-size values
-  in a preallocated ring, handed between threads in batches: ~9.5 M packets/s through the full
-  pipeline, 3.5× the first version. Live, capturing ~80 Gbit/s of loopback TCP costs 5% of one
-  core, down from 47%, and NetPulse no longer slows down the traffic it measures (it used to cut
-  it by ~79%). [docs/benchmarks.md](docs/benchmarks.md) tells how each of those was found.
+- **Capture does not wait on processing.** The queue between the capture and aggregator threads is bounded. When it is full, the packet is dropped and counted, so a slow consumer can't push loss into the kernel buffer where nobody would see it. Both kinds of loss, NetPulse's queue and the kernel buffer, are shown on screen.
+- **Headers only, enforced in the kernel.** 192 bytes covers the deepest header stack NetPulse parses. A classic-BPF filter truncates every packet to that length before it is copied to NetPulse. On Linux it is attached to the capture socket, and on Windows it is installed in the Npcap driver. On Linux, libpcap's snaplen setting trims in user space after the kernel has already copied the whole packet, which I found by measurement. On Windows, measured during a download, only DNS answers arrive longer than 192 bytes (see [docs/benchmarks.md](docs/benchmarks.md)).
+- **DNS answers are the one opt-in exception.** With `--dns-names`, the filter keeps up to 512 bytes of DNS and mDNS responses (and nothing more of anything else), so NetPulse can read which names your devices looked up, for example "142.250.72.14 is www.youtube.com". That names addresses reverse DNS can't, and turns many pattern guesses into known-service matches. It is off by default because it means reading the contents of one kind of packet. Names from the network are treated as hostile input. Each compression pointer must land before everything already read for that name, so pointers can't loop (requiring "backwards" alone wasn't enough, which fuzzing showed), and names with control characters are rejected so a DNS answer can't inject escape codes into your terminal.
+- **No heap allocation and no per-packet locking on the hot path.** Packets are fixed-size values in a preallocated ring, handed between threads in batches. The full pipeline handles about 9.5 M packets/s, 3.5x the first version. Capturing about 80 Gbit/s of loopback TCP live costs 5% of one core, down from 47%, and NetPulse no longer slows the traffic it measures (it used to cut it by about 79%). [docs/benchmarks.md](docs/benchmarks.md) shows how each of these was found.
+- **Least privilege.** On Linux the binary gets `CAP_NET_RAW` and `CAP_NET_ADMIN` through `setcap` instead of running as root. On Windows, Npcap's default install lets ordinary users capture. If permission is missing, NetPulse prints the exact fix instead of an errno string.
 
-## How NetPulse makes its judgments (and where they fall short)
+## How NetPulse classifies traffic
 
-NetPulse never reads packet contents, and most traffic is encrypted anyway, so anything it
-says about *what* traffic is for is an inference. Every inference is labeled with how it was
-made, and selecting it shows the evidence.
+NetPulse never reads packet contents, and most traffic is encrypted anyway, so anything it says about what traffic is for is an inference. Each inference is labeled with how it was made, and selecting it shows the evidence.
 
-**Traffic categories** (streaming, browsing, calls/gaming, file transfer, other):
+Traffic categories (streaming, browsing, calls/gaming, file transfer, other) are assigned in this order:
 
-1. *Background* first: DNS, NTP, DHCP, device discovery and ICMP are real but negligible, and
-   are left out of the breakdown.
-2. *Known-domain match*: the remote address's name (its reverse-DNS name, or with
-   `--dns-names` the name a device actually looked up) is checked against a short built-in
-   list (e.g. `nflxvideo.net` → streaming). Reliable when it fires, but many services'
-   addresses have no matching reverse-DNS name (CDNs especially), which is what `--dns-names`
-   is for.
-3. *Flow-shape heuristic*: duration, volume, direction, and **duty cycle** (the share of seconds
-   that carried traffic). A file download runs flat out, close to 100%; video players fetch a few
-   seconds ahead and pause, giving on/off bursts. UDP on port 443 is QUIC (how YouTube and many
-   large sites deliver content) and is treated as web traffic. Calls and games are steady,
-   two-way streams of small UDP packets.
-4. Anything else is shown as *Other* rather than forced into a category.
+1. **Background.** DNS, NTP, DHCP, device discovery and ICMP are real but negligible, so they are left out of the breakdown.
+2. **Known-domain match.** The remote address's name (its reverse-DNS name, or with `--dns-names` the name a device actually looked up) is checked against a short built-in list (for example `nflxvideo.net` is streaming). This is reliable when it matches, but many services' addresses have no matching reverse-DNS name (CDNs especially), which is what `--dns-names` is for.
+3. **Flow shape.** Duration, volume, direction, and duty cycle (the share of seconds that carried traffic). A file download runs flat out, close to 100%. Video players fetch a few seconds ahead and pause, which gives on/off bursts. UDP on port 443 is QUIC (how YouTube and many large sites deliver content) and is treated as web traffic. Calls and games are steady, two-way streams of small UDP packets.
+4. Anything else is shown as Other instead of being forced into a category.
 
-**Status line**: a few specific "worth noticing" checks, never threat detection, so it can be
-amber but never red. In priority order: NetPulse itself missing more than 1% of packets; a
-device moving more than 3x its own average; a newly appeared device taking more than 30% of
-traffic; most traffic going to an address with no reverse-DNS name. Each check has guard rails
-(a warm-up period, minimum traffic levels, and a short hold so messages don't flicker), and all
-thresholds are tunable constants. The unnamed-address check will fire on some perfectly normal
-services, since many CDNs publish no reverse-DNS names; its explanation says so.
+The status line runs a few specific "worth noticing" checks. It is not threat detection, so it can be amber but never red. In priority order the checks are: NetPulse itself missing more than 1% of packets, a device moving more than 3x its own average, a newly appeared device taking more than 30% of traffic, and most traffic going to an address with no reverse-DNS name. Each check has guard rails (a warm-up period, minimum traffic levels, and a short hold so messages don't flicker), and all thresholds are tunable constants. The unnamed-address check will fire on some perfectly normal services, since many CDNs publish no reverse-DNS names, and its explanation says so.
 
 ## Building on Linux (WSL2 / Ubuntu 24.04)
 
@@ -198,32 +145,10 @@ and `--local PREFIX` adds more, which mostly matters for replays:
 ctest --test-dir ~/netpulse-build --output-on-failure
 ```
 
-- **Unit tests (Catch2):** header parsing for IPv4 and IPv6 (including every truncated prefix
-  of a frame, inconsistent headers, hostile IPv6 extension-header chains, and 20,000
-  random-garbage frames), the bounded queue (including multi-producer/multi-consumer
-  exactly-once tests), flow keys, the throughput window, aggregation, the classifier and status
-  checks, the dashboard's focus and explanation logic, the async resolver, and formatting.
-- **End-to-end:** two captures are replayed through the real capture → queue → aggregator
-  pipeline. `synthetic.pcap` checks parsing and counting; `traffic_mix.pcap` holds one
-  conversation of each traffic pattern and checks that each lands in the right category and
-  that the status line flags the big download at the end. Both are generated by
-  [`tools/make_synthetic_pcap.py`](tools/make_synthetic_pcap.py), which builds frames
-  independently of the C++ code. Replays run on the file's own clock, so results are the same
-  on every machine. The demo runs through the same pipeline in a test too, which checks that
-  it still tells the story it's meant to.
-- **Fuzzing** ([`fuzz/`](fuzz/)): the code that reads untrusted bytes, checked against
-  properties rather than just "doesn't crash". The packet parser and aggregator get arbitrary
-  frames; the DNS-answer parser gets arbitrary messages and must only return terminal-safe
-  names; and the kernel capture filter is checked *differentially* against the C++ parser,
-  since they're two independent answers to "is this a DNS response?" and must agree on every
-  frame. Each target runs as an ordinary test (seed frames plus random mutations), and with
-  clang as a coverage-guided libFuzzer binary: `tools/fuzz.sh [seconds]`. Deliberately
-  injected bugs (wrong ports, a dropped fragment check, a wrong header offset, a pointer loop,
-  a control-character leak) are each caught.
-- **CI** (GitHub Actions) runs everything three ways: a `-Werror` release build,
-  AddressSanitizer + UndefinedBehaviorSanitizer, and ThreadSanitizer. A fourth job fuzzes each
-  target for a minute with libFuzzer, and a fifth builds with MSVC on Windows (warnings as
-  errors) and runs the tests there.
+- **Unit tests (Catch2)** cover header parsing for IPv4 and IPv6 (every truncated prefix of a frame, inconsistent headers, hostile IPv6 extension-header chains, and 20,000 random garbage frames), the bounded queue (including multi-producer, multi-consumer exactly-once tests), flow keys, the throughput window, aggregation, the classifier and status checks, the dashboard's focus and explanation logic, the async resolver, and formatting.
+- **End-to-end tests** replay two captures through the real capture, queue and aggregator pipeline. `synthetic.pcap` checks parsing and counting. `traffic_mix.pcap` holds one conversation of each traffic pattern and checks that each lands in the right category and that the status line flags the big download at the end. Both are generated by [`tools/make_synthetic_pcap.py`](tools/make_synthetic_pcap.py), which builds frames independently of the C++ code. Replays run on the file's own clock, so results are the same on every machine. The demo also runs through the pipeline in a test, which checks that it still shows what it is meant to.
+- **Fuzzing** ([`fuzz/`](fuzz/)) targets the code that reads untrusted bytes and checks properties instead of only "doesn't crash". The packet parser and aggregator get arbitrary frames. The DNS-answer parser gets arbitrary messages and must only return terminal-safe names. The kernel capture filter is checked against the C++ parser, since they are two independent answers to "is this a DNS response?" and must agree on every frame. Each target runs as an ordinary test (seed frames plus random mutations), and with clang as a coverage-guided libFuzzer binary: `tools/fuzz.sh [seconds]`. Bugs injected on purpose (wrong ports, a dropped fragment check, a wrong header offset, a pointer loop, a control-character leak) are each caught.
+- **CI** (GitHub Actions) runs a `-Werror` release build, an AddressSanitizer + UndefinedBehaviorSanitizer build, and a ThreadSanitizer build. A fourth job fuzzes each target for a minute with libFuzzer, and a fifth builds with MSVC on Windows (warnings as errors) and runs the tests there.
 
 To run a sanitizer build locally:
 
